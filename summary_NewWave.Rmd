@@ -1,0 +1,2331 @@
+---
+title: "Riepilogo prestazioni NewWave"
+author: "Federico Agostinis"
+date: "18/9/2020"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3  # upto three depths of headings (specified by #, ## and ###)
+    number_sections: true  ## if you want number sections at each table header
+    theme: united  # many options for theme, this one is my favorite.
+    highlight: tango  # specifies the syntax highlighting style
+
+---
+
+
+```{r}
+knitr::opts_chunk$set(echo = F)
+knitr::opts_chunk$set(message  = F)
+knitr::opts_chunk$set(warning= F)
+```
+```{r}
+library(ggplot2)
+library(tidyverse)
+library(gridExtra)
+library(grid)
+library(ggpubr)
+```
+
+
+
+
+# Dati BICCN (riduzione dimensionalità + rimozione batch)
+
+
+## Performance temporali delle implementazioni
+
+Confronto ora le performance di ZINB-WaVE e diverse combinazioni di NewWave su dataset con un numero crescente di cellule e 1000 geni.
+
+Elenco qui le diciture associate a NewWave:
+
+*  Commondisp o std : Metodo standard, assegnazione di tutti i valori a 0, inizializzazione e ottimizzazione senza l'utilizzo di minibatch con dispersione comune.
+*  Random init : assegnazione di tutti i valori con campionamento da una normale standard, nessuna inizializzazione e ottimizzazione senza l'utilizzo di minibatch con dispersione comune.
+* Random start : assegnazione di tutti i valori con campionamento da una normale standard con inizializzazione, ottimizzazione senza l'utilizzo di minibatch con dispersione comune.
+* Commondisp_minibatch : inizializzazione standard, minibatch sulla stima della dispersione ma non sulla stima dei parametri relativi alla media con dispersione comune.
+* Commondisp_allminibatch : inizializzazione standard, minibatch in ogni fase dell'ottimizzazione con dispersione comune.
+* Genewise : Inizializzazione standard e ottimizzazione senza l'utilizzo di minibatch con dispersione genewise.
+* Genewise minibatch : inizializzazione standard, minibatch sulla stima della dispersione ma non sulla stima dei parametri relativi alla media con dispersione genewise.
+* Commondisp_allminibatch : inizializzazione standard, minibatch in ogni fase dell'ottimizzazione con dispersione genewise.
+ * Commondisp_parminibatch : inizializzazione standard, minibatch solo nella fase di ottimizzazione dei parametri dispersione genewise.
+
+### 10 000 cellule
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/nb_time_performance_10k.Rdata")
+stat_nb<-stat_zinb
+time_nb <- time_zinb
+colnames(time_nb)[1]<-"V1"
+levels(time_nb$V1)<-"nbwave"
+load("/mnt/federico/BICCN_data/performance/nb_time_performance_10kARI.Rdata")
+stat_nb[3,]<-stat_zinb[3,]
+rownames(stat_nb)[3]<-"ari"
+```
+
+```{r}
+theme_set(theme_bw())
+load("/mnt/federico/BICCN_data/performance/zinb_time_performance_10kARI.Rdata")
+tmp <-stat_zinb[3,]
+load("/mnt/federico/BICCN_data/performance/zinb_time_performance_10k.Rdata")
+stat_zinb[3,]<-tmp
+rownames(stat_zinb)[3]<-"ari"
+load("/mnt/federico/BICCN_data/performance/results/10_thousand/time_performance_10k.Rdata")
+
+```
+
+Vediamo il confronto fra i tempi computazionali di zinbwave e di 7 diverse combinazioni di new-wave.
+
+```{r}
+colnames(time_zinb)[1]<-"V1"
+levels(time_zinb$V1)<-"zinbwave"
+
+time <- as.data.frame(cbind(c(rep("Commondispersion",10),rep("Random init",10),rep("Random start",10), rep("Mini batch",10), rep("ALL Mini batch",10), rep("Genewise",10),rep("Genewise minibatch",10),rep("ALL Genewise minibatch",10),rep("Par Genewise minibatch",10)), time))
+
+time_total <- rbind(time_zinb, time_nb,  time)
+
+time_total$time <- as.numeric(time_total$time)
+time_total$time[1:30] <- time_total$time[1:30]*1e-9
+ggplot(time_total, aes(y=time/60, x=V1))+ geom_violin()+xlab("model")+ggtitle("Distribution of the execution time")+ylab("Time(in minute)")+ theme(axis.text.x = element_text(angle = 70))
+```
+
+Si possono notare due cose curiose:
+
+* L'inizializzazione random ha tempi di esecuzione molto alti, probabilmente fatica a convergere partendo da valori campionati casualmente
+* L'implementazione genewise è più veloce se fatta senza l'utilizzo di minibatch.
+
+Togliamo ZINB-WAVE e NewWave Random init per vedere meglio gli altri:
+```{r}
+ggplot(time_total[c(11:30,41:110),], aes(y=time/60, x=V1))+ geom_violin()+xlab("model")+ggtitle("Distribution of the execution time")+ylab("Time(in minute)")+ theme(axis.text.x = element_text(angle = 70))
+```
+
+Vediamo ora l'AIC in relazione al tempo di esecuzione dei modelli:
+
+```{r}
+stat_total <- cbind(stat_zinb, stat_nb, stat)
+stat_total <- as.data.frame(t(rbind(stat_total, colnames(stat_total))))
+stat_total$time <- c(mean(time_zinb[,2])/1e9,mean(time_nb[,2])/1e9,mean(time_total[21:30,2]),time_total[31:110,2])/60 
+stat_total$zAIC <- as.numeric(stat_total$zAIC)
+stat_total$zBIC <- as.numeric(stat_total$zBIC)
+stat_total$ari <- as.numeric(stat_total$ari)
+```
+
+```{r}
+stat_10k <-stat_total
+```
+
+In questo caso la differenza fra zinbwave e newwave è meno marcata ma credo che questo sia dovuto anche dal fatto che la scala è molto più piccola rispetto all'aic e al bic. I risultati e le conclusioni sono comunque analoghi.
+
+
+### 30 000 cellule
+
+Visti i risultati ottenuti con 10000 cellule e il fatto che i benchmark hanno iniziato ad essere computazionalmente più onerosi ho deciso di selezionare un sottinsieme dei modelli:
+
+
+* Commondisp_allminibatch : inizializzazione standard, minibatch in ogni fase dell'ottimizzazione con dispersione comune.
+* Genewise parminibatch : inizializzazione standard, minibatch  sulla stima dei parametri relativi alla media con dispersione genewise.
+* Std : inizializzazione standard, nessun minbatch e dispersione commonwise
+ 
+Personalmente credo che l'opzione senza l'inizializzazione possa essere eliminata e che si possa decidere se inizializzare in modo random o a 0, in modo da pulire un pò il codice.
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/nb_time_performance_30k.Rdata")
+stat_nb <- cbind(time_zinb[,2]/1e9,rep(stat_zinb[1,],10),rep(stat_zinb[2,],10),rep(stat_zinb[4,],10))
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/zinb_time_performance_30k.Rdata")
+stat_zinb <- cbind(time_zinb[,2]/1e9,rep(stat_zinb[1,],10),rep(stat_zinb[2,],10),rep(stat_zinb[4,],10))
+```
+```{r}
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_com_allmini1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_com_allmini2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_com_allmini3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_com_allmini4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_com_allmini3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_com_allmini6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_com_allmini7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_com_allmini8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_com_allmini9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_com_allmini10.Rdata")
+
+stat_comm <- rbind(stat_com_allmini1,stat_com_allmini2,stat_com_allmini3,stat_com_allmini4,stat_com_allmini3,stat_com_allmini6,stat_com_allmini7,stat_com_allmini8,stat_com_allmini9,stat_com_allmini10)
+```
+
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_com_allmini_random1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_com_allmini_random2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_com_allmini_random3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_com_allmini_random4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_com_allmini_random3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_com_allmini_random6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_com_allmini_random7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_com_allmini_random8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_com_allmini_random9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_com_allmini_random10.Rdata")
+
+stat_comm_random <- rbind(stat_com_allmini_random1,stat_com_allmini_random2,stat_com_allmini_random3,stat_com_allmini_random4,stat_com_allmini_random3,stat_com_allmini_random6,stat_com_allmini_random7,stat_com_allmini_random8,stat_com_allmini_random9,stat_com_allmini_random10)
+```
+```{r}
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_gene_parmini1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_gene_parmini2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_gene_parmini3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_gene_parmini4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_gene_parmini3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_gene_parmini6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_gene_parmini7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_gene_parmini8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_gene_parmini9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_gene_parmini10.Rdata")
+stat_gene_parmini <- rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3,stat_gene_parmini4,stat_gene_parmini3,stat_gene_parmini6,stat_gene_parmini7,stat_gene_parmini8,stat_gene_parmini9,stat_gene_parmini10)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_gene_parmini_random1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_gene_parmini_random2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_gene_parmini_random3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_gene_parmini_random4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_gene_parmini_random3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_gene_parmini_random6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_gene_parmini_random7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_gene_parmini_random8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_gene_parmini_random9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_gene_parmini_random10.Rdata")
+stat_gene_parmini_random <- rbind(stat_gene_parmini_random2,stat_gene_parmini_random2,stat_gene_parmini_random3,stat_gene_parmini_random4,stat_gene_parmini_random3,stat_gene_parmini_random6,stat_gene_parmini_random7,stat_gene_parmini_random8,stat_gene_parmini_random9,stat_gene_parmini_random10)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_std1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_std2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_std3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_std4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_std3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_std6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_std7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_std8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_std9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/30_thousand/performance_std10.Rdata")
+
+stat_std <- rbind(stat_std1,stat_std2,stat_std3,stat_std4,stat_std3,stat_std6,stat_std7,stat_std8,stat_std9,stat_std10)
+```
+
+
+```{r}
+stat <- as.data.frame(rbind(cbind(stat_nb,"ZinbWave\n (Negative Binomial)"),
+                            cbind(stat_zinb,"ZinbWave"),
+              cbind(stat_std, rep("NewWave", 10)),
+              cbind(stat_comm[,-4], rep("NewWave\n (common dispersion\n + minibatch)", 10)),
+              
+              cbind(stat_gene_parmini[,-4], rep("NewWave\n (genewise dispersion\n + minibatch)",10)),
+              cbind(stat_comm_random, rep("NewWave\n (common dispersion\n + minibatch) random", 10)),
+              
+               cbind(stat_gene_parmini_random, rep("NewWave\n(genewise dispersion\n + minibatch) random",10))))
+```
+
+```{r}
+stat[,1]<-as.numeric(stat[,1])
+stat[,2]<-as.numeric(stat[,2])
+stat[,3]<-as.numeric(stat[,3])
+stat[,4]<-as.numeric(stat[,4])
+```
+
+```{r}
+ggplot(stat, aes(y=V1/60, x=V5))+ geom_violin()+xlab("model")+ggtitle("Distribution of the execution time")+ylab("Time(in minute)")+ theme(axis.text.x = element_text(angle = 70))
+```
+Vediamo le sole tre migliori implementazzioni di NewWave:
+
+```{r}
+ggplot(stat[21:50,], aes(y=V1/60, x=V5))+ geom_violin()+xlab("model")+ggtitle("Distribution of the execution time")+ylab("Time(in minute)")+ theme(axis.text.x = element_text(angle = 70))
+```
+
+```{r}
+stat_30k <- stat[1:50,]
+```
+
+
+
+
+### 50 000 cellule
+
+
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/nb_time_performance_50k.Rdata")
+stat_nb <- cbind(time_zinb[,2]/1e9,rep(stat_zinb[1,],10),rep(stat_zinb[2,],10),rep(stat_zinb[4,],10))
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/zinb_time_performance_50k.Rdata")
+stat_zinb <- cbind(time_zinb[,2]/1e9,rep(stat_zinb[1,],10),rep(stat_zinb[2,],10),rep(stat_zinb[3,],10))
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_com_allmini1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_com_allmini2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_com_allmini3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_com_allmini4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_com_allmini5.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_com_allmini6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_com_allmini7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_com_allmini8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_com_allmini9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_com_allmini10.Rdata")
+
+stat_comm <- rbind(stat_com_allmini1,stat_com_allmini2,stat_com_allmini3,stat_com_allmini4,stat_com_allmini5,stat_com_allmini6,stat_com_allmini7,stat_com_allmini8,stat_com_allmini9,stat_com_allmini10)
+
+
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_com_allmini_random1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_com_allmini_random2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_com_allmini_random3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_com_allmini_random4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_com_allmini_random5.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_com_allmini_random6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_com_allmini_random7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_com_allmini_random8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_com_allmini_random9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_com_allmini_random10.Rdata")
+
+stat_comm <- rbind(stat_com_allmini_random1,stat_com_allmini_random2,stat_com_allmini_random3,stat_com_allmini_random4,stat_com_allmini_random5,stat_com_allmini_random6,stat_com_allmini_random7,stat_com_allmini_random8,stat_com_allmini_random9,stat_com_allmini_random10)
+
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_gene_parmini1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_gene_parmini2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_gene_parmini3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_gene_parmini4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_gene_parmini5.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_gene_parmini6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_gene_parmini7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_gene_parmini8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_gene_parmini9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_gene_parmini10.Rdata")
+stat_gene_parmini <- rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3,stat_gene_parmini4,stat_gene_parmini5,stat_gene_parmini6,stat_gene_parmini7,stat_gene_parmini8,stat_gene_parmini9,stat_gene_parmini10)
+
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_gene_parmini_random1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_gene_parmini_random2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_gene_parmini_random3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_gene_parmini_random4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_gene_parmini_random5.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_gene_parmini_random6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_gene_parmini_random7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_gene_parmini_random8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_gene_parmini_random9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_gene_parmini_random10.Rdata")
+stat_gene_parmini_random <- rbind(stat_gene_parmini_random1,stat_gene_parmini_random2,stat_gene_parmini_random3,stat_gene_parmini_random4,stat_gene_parmini_random5,stat_gene_parmini_random6,stat_gene_parmini_random7,stat_gene_parmini_random8,stat_gene_parmini_random9,stat_gene_parmini_random10)
+
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_std1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_std2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_std3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_std4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_std5.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_std6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_std7.Rdata")
+# load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_std8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_std9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/50_thousand/performance_std10.Rdata")
+
+stat_std <- rbind(stat_std1,stat_std2,stat_std3,stat_std4,stat_std5,stat_std6,stat_std7,stat_std7,stat_std9,stat_std10)
+```
+```{r}
+stat <- as.data.frame(rbind(cbind(stat_nb,"ZinbWave\n (Negative Binomial)"),
+                            cbind(stat_zinb,"ZinbWave"),
+              cbind(stat_std, rep("NewWave", 10)),
+              cbind(stat_comm, rep("NewWave\n (common dispersion\n + minibatch)", 10)),
+              
+              cbind(stat_gene_parmini, rep("NewWave\n (genewise dispersion\n + minibatch)",10)),
+              cbind(stat_comm_random, rep("NewWave\n (common dispersion\n + minibatch) random", 10)),
+              
+               cbind(stat_gene_parmini_random, rep("NewWave\n(genewise dispersion\n + minibatch) random",10))))
+```
+
+
+```{r}
+stat[,1]<-as.numeric(stat[,1])
+stat[,2]<-as.numeric(stat[,2])
+stat[,3]<-as.numeric(stat[,3])
+stat[,4]<-as.numeric(stat[,4])
+```
+
+```{r}
+ggplot(stat, aes(y=V1/60, x=V5))+geom_violin()+xlab("model")+ggtitle("Distribution of the execution time")+ylab("Time(in minute)")+ theme(axis.text.x = element_text(angle = 70))
+```
+
+
+```{r}
+stat_50k <- stat[1:50,]
+```
+
+```{r}
+ggplot(stat, aes(x=ari, y = V1/60,col=V5))+ geom_point()+xlab("ARI")+ylab("Time(in minute)")
+```
+```{r}
+ggplot(stat[21:50,], aes(x=nAIC, y = V1/60,col=V5))+ geom_point()+xlab("AIC")+ylab("Time(in minute)")
+```
+
+
+### 100 000 cellule
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/nb_time_performance_100k.Rdata")
+stat_nb<-stat_zinb
+time_nb <- time_zinb[,2]*1e-9
+stat_nb <- matrix(cbind(time_nb,t(stat_nb)), nrow=10, ncol=4, byrow = T)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/zinb_time_performance_100k.Rdata")
+stat_zinb <- matrix(cbind(time_zinb[,2]*1e-9,t(stat_zinb)), nrow=10, ncol=4, byrow = T)
+```
+
+A questo punto ci sono due ulteriori complicazioni, il numero di cellule rende zinbwave difficilmente utilizzabile contando che deve girare 10 volte e inoltre l'indice di silhouette non è più calcolabile in quanto R non riesce a creare la matrice delle distanze.
+```{r}
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_com_allmini1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_com_allmini2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_com_allmini3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_com_allmini4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_com_allmini5.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_com_allmini6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_com_allmini7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_com_allmini8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_com_allmini9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_com_allmini10.Rdata")
+
+stat_comm <- rbind(stat_com_allmini1,stat_com_allmini2,stat_com_allmini3,stat_com_allmini4,stat_com_allmini5,stat_com_allmini6,stat_com_allmini7,stat_com_allmini8,stat_com_allmini9,stat_com_allmini10)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_com_allmini_random1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_com_allmini_random2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_com_allmini_random3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_com_allmini_random4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_com_allmini_random5.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_com_allmini_random6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_com_allmini_random7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_com_allmini_random8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_com_allmini_random9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_com_allmini_random10.Rdata")
+
+stat_comm <- rbind(stat_com_allmini_random1,stat_com_allmini_random2,stat_com_allmini_random3,stat_com_allmini_random4,stat_com_allmini_random5,stat_com_allmini_random6,stat_com_allmini_random7,stat_com_allmini_random8,stat_com_allmini_random9,stat_com_allmini_random10)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_gene_parmini1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_gene_parmini2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_gene_parmini3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_gene_parmini4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_gene_parmini5.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_gene_parmini6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_gene_parmini7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_gene_parmini8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_gene_parmini9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_gene_parmini10.Rdata")
+stat_gene_parmini <- rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3,stat_gene_parmini4,stat_gene_parmini5,stat_gene_parmini6,stat_gene_parmini7,stat_gene_parmini8,stat_gene_parmini9,stat_gene_parmini10)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_gene_parmini_random1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_gene_parmini_random2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_gene_parmini_random3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_gene_parmini_random4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_gene_parmini_random5.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_gene_parmini_random6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_gene_parmini_random7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_gene_parmini_random8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_gene_parmini_random9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_gene_parmini_random10.Rdata")
+stat_gene_parmini_random <- rbind(stat_gene_parmini_random1,stat_gene_parmini_random2,stat_gene_parmini_random3,stat_gene_parmini_random4,stat_gene_parmini_random5,stat_gene_parmini_random6,stat_gene_parmini_random7,stat_gene_parmini_random8,stat_gene_parmini_random9,stat_gene_parmini_random10)
+```
+```{r}
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_std1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_std2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_std3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_std4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_std5.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_std6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_std7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_std8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_std9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/100_thousand/performance_std10.Rdata")
+
+stat_std <- rbind(stat_std1,stat_std2,stat_std3,stat_std4,stat_std5,stat_std6,stat_std7,stat_std8,stat_std9,stat_std10)
+```
+
+```{r}
+stat <- as.data.frame(rbind(cbind(stat_nb,"ZinbWave\n (Negative Binomial)"),
+                            cbind(stat_zinb,"ZinbWave"),
+              cbind(stat_std, rep("NewWave", 10)),
+              cbind(stat_comm, rep("NewWave\n (common dispersion\n + minibatch)", 10)),
+             
+              
+              cbind(stat_gene_parmini, rep("NewWave\n (genewise dispersion\n + minibatch)",10)),
+               cbind(stat_comm_random, rep("NewWave\n (common dispersion\n + minibatch) random", 10)),
+               cbind(stat_gene_parmini_random, rep("NewWave\n (genewise dispersion\n + minibatch) random", 10))))
+```
+
+```{r}
+stat[,1]<-as.numeric(stat[,1])
+stat[,2]<-as.numeric(stat[,2])
+stat[,3]<-as.numeric(stat[,3])
+stat[,4]<-as.numeric(stat[,4])
+stat[,5]<-as.factor(stat[,5])
+```
+
+
+```{r}
+ggplot(stat[21:70,], aes(y=V1/60, x=V5))+ geom_violin()+xlab("model")+ggtitle("Distribution of the execution time")+ylab("Time(in minute)")+ theme(axis.text.x = element_text(angle = 70))
+```
+```{r}
+stat_gene_parmini_10core <- stat_gene_parmini[,1, drop=F]
+```
+
+
+```{r}
+stat_100k <-stat[1:50,]
+```
+
+```{r}
+ggplot(stat, aes(x=ari, y = V1/60,col=V5))+ geom_point()+xlab("ARI")+ylab("Time(in minute)")
+```
+```{r}
+ggplot(stat[21:50,], aes(x=nAIC, y = V1/60,col=V5))+ geom_point()+xlab("AIC")+ylab("Time(in minute)")
+```
+
+
+### 200 000 cellule
+
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/nb_time_performance_200k.Rdata")
+stat_nb<-stat_zinb
+time_nb <- time_zinb[,2]*1e-9
+stat_nb <- matrix(cbind(time_nb,t(stat_nb)), nrow=10, ncol=4, byrow = T)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/zinb_time_performance_200k.Rdata")
+stat_zinb <- matrix(cbind(time_zinb[,2]*1e-9,t(stat_zinb)), nrow=10, ncol=4, byrow = T)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_com_allmini1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_com_allmini2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_com_allmini3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_com_allmini4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_com_allmini5.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_com_allmini6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_com_allmini7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_com_allmini8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_com_allmini9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_com_allmini10.Rdata")
+
+stat_comm <- rbind(stat_com_allmini1,stat_com_allmini2,stat_com_allmini3,stat_com_allmini4,stat_com_allmini5,stat_com_allmini6,stat_com_allmini7,stat_com_allmini8,stat_com_allmini9,stat_com_allmini10)
+```
+```{r}
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_com_allmini_random1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_com_allmini_random2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_com_allmini_random3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_com_allmini_random4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_com_allmini_random5.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_com_allmini_random6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_com_allmini_random7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_com_allmini_random8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_com_allmini_random9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_com_allmini_random10.Rdata")
+
+stat_comm <- rbind(stat_com_allmini_random1,stat_com_allmini_random2,stat_com_allmini_random3,stat_com_allmini_random4,stat_com_allmini_random5,stat_com_allmini_random6,stat_com_allmini_random7,stat_com_allmini_random8,stat_com_allmini_random9,stat_com_allmini_random10)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_gene_parmini1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_gene_parmini2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_gene_parmini3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_gene_parmini4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_gene_parmini5.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_gene_parmini6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_gene_parmini7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_gene_parmini8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_gene_parmini9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_gene_parmini10.Rdata")
+stat_gene_parmini <- rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3,stat_gene_parmini4,stat_gene_parmini5,stat_gene_parmini6,stat_gene_parmini7,stat_gene_parmini8,stat_gene_parmini9,stat_gene_parmini10)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_gene_parmini_random1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_gene_parmini_random2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_gene_parmini_random3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_gene_parmini_random4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_gene_parmini_random5.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_gene_parmini_random6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_gene_parmini_random7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_gene_parmini_random8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_gene_parmini_random9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_gene_parmini_random10.Rdata")
+stat_gene_parmini_random <- rbind(stat_gene_parmini_random1,stat_gene_parmini_random2,stat_gene_parmini_random3,stat_gene_parmini_random4,stat_gene_parmini_random5,stat_gene_parmini_random6,stat_gene_parmini_random7,stat_gene_parmini_random8,stat_gene_parmini_random9,stat_gene_parmini_random10)
+```
+```{r}
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_std1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_std2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_std3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_std4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_std5.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_std6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_std7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_std8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_std9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/200_thousand/performance_std10.Rdata")
+
+stat_std <- rbind(stat_std1,stat_std2,stat_std3,stat_std4,stat_std5,stat_std6,stat_std7,stat_std8,stat_std9,stat_std10)
+```
+
+```{r}
+stat <- as.data.frame(rbind(cbind(stat_nb,"ZinbWave\n (Negative Binomial)"),
+                            cbind(stat_zinb,"ZinbWave"),
+              cbind(stat_std, rep("NewWave", 10)),
+              cbind(stat_comm, rep("NewWave\n (common dispersion\n + minibatch)", 10)),
+            
+              
+              cbind(stat_gene_parmini, rep("NewWave\n (genewise dispersion\n + minibatch)",10)),
+                cbind(stat_comm_random, rep("NewWave\n (common dispersion\n + minibatch) random", 10)),
+               cbind(stat_gene_parmini_random, rep("NewWave\n (genewise dispersion\n + minibatch) random", 10))))
+```
+
+```{r}
+stat[,1]<-as.numeric(stat[,1])
+stat[,2]<-as.numeric(stat[,2])
+stat[,3]<-as.numeric(stat[,3])
+stat[,4]<-as.numeric(stat[,4])
+stat[,5]<-as.factor(stat[,5])
+```
+
+
+
+```{r}
+ggplot(stat, aes(y=V1/60, x=V5))+ geom_violin()+xlab("model")+ggtitle("Distribution of the execution time")+ylab("Time(in minute)")+ theme(axis.text.x = element_text(angle = 70))
+```
+```{r}
+ggplot(stat[21:50,], aes(y=V1/60, x=V5))+ geom_violin()+xlab("model")+ggtitle("Distribution of the execution time")+ylab("Time(in minute)")+ theme(axis.text.x = element_text(angle = 70))
+```
+      
+
+```{r}
+stat_200k <- stat[1:50,]
+```
+
+```{r}
+ggplot(stat, aes(x=ari, y = V1/60,col=V5))+ geom_point()+xlab("ARI")+ylab("Time(in minute)")
+```
+```{r}
+ggplot(stat[21:50,], aes(x=nAIC, y = V1/60,col=V5))+ geom_point()+xlab("AIC")+ylab("Time(in minute)")
+```
+
+
+### 312 000 cellule
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/nb_time_performance_300k.Rdata")
+stat_nb<-stat_zinb
+time_nb <- time_zinb[,2]*1e-9
+stat_nb <- matrix(cbind(time_nb,t(stat_nb)), nrow=10, ncol=4, byrow = T)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/zinb_time_performance_all.Rdata")
+stat_zinb <- matrix(cbind(time_zinb[,2]*1e-9,t(stat_zinb)), nrow=10, ncol=4, byrow = T)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_com_allmini1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_com_allmini2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_com_allmini3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_com_allmini4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_com_allmini5.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_com_allmini6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_com_allmini7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_com_allmini8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_com_allmini9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_com_allmini10.Rdata")
+
+stat_comm <- rbind(stat_com_allmini1,stat_com_allmini2,stat_com_allmini3,stat_com_allmini4,stat_com_allmini5,stat_com_allmini6,stat_com_allmini7,stat_com_allmini8,stat_com_allmini9,stat_com_allmini10)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_com_allmini_random1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_com_allmini_random2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_com_allmini_random3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_com_allmini_random4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_com_allmini_random5.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_com_allmini_random6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_com_allmini_random7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_com_allmini_random8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_com_allmini_random9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_com_allmini_random10.Rdata")
+
+stat_comm <- rbind(stat_com_allmini_random1,stat_com_allmini_random2,stat_com_allmini_random3,stat_com_allmini_random4,stat_com_allmini_random5,stat_com_allmini_random6,stat_com_allmini_random7,stat_com_allmini_random8,stat_com_allmini_random9,stat_com_allmini_random10)
+```
+```{r}
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_gene_parmini1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_gene_parmini2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_gene_parmini3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_gene_parmini4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_gene_parmini5.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_gene_parmini6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_gene_parmini7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_gene_parmini8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_gene_parmini9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_gene_parmini10.Rdata")
+
+stat_gene_parmini <- rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3,stat_gene_parmini4,stat_gene_parmini5,stat_gene_parmini6,stat_gene_parmini7,stat_gene_parmini8,stat_gene_parmini9,stat_gene_parmini10)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_gene_parmini_random1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_gene_parmini_random2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_gene_parmini_random3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_gene_parmini_random4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_gene_parmini_random5.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_gene_parmini_random6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_gene_parmini_random7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_gene_parmini_random8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_gene_parmini_random9.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_gene_parmini_random10.Rdata")
+stat_gene_parmini_random <- rbind(stat_gene_parmini_random1,stat_gene_parmini_random2,stat_gene_parmini_random3,stat_gene_parmini_random4,stat_gene_parmini_random5,stat_gene_parmini_random6,stat_gene_parmini_random7,stat_gene_parmini_random8,stat_gene_parmini_random9,stat_gene_parmini_random10)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_std1.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_std2.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_std3.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_std4.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_std6.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_std7.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_std8.Rdata")
+load("/mnt/federico/BICCN_data/performance/results/300_thousand/performance_std9.Rdata")
+
+stat_std <- rbind(stat_std1,stat_std2,stat_std3,stat_std4,stat_std4,stat_std4,stat_std6,stat_std7,stat_std8,stat_std9)
+```
+
+```{r}
+stat <- as.data.frame(rbind(cbind(stat_nb,"ZinbWave\n (Negative Binomial)"),
+                            cbind(stat_zinb,"ZinbWave"),
+              cbind(stat_std, rep("NewWave", 10)),
+              cbind(stat_comm, rep("NewWave\n (common dispersion\n + minibatch)", 10)),
+           
+              
+              cbind(stat_gene_parmini, rep("NewWave\n (genewise dispersion\n + minibatch)",10)),
+                 cbind(stat_comm_random, rep("NewWave\n (common dispersion\n + minibatch) random", 10)),
+               cbind(stat_gene_parmini_random, rep("NewWave\n (genewise dispersion\n + minibatch) random", 10))))
+```
+
+```{r}
+stat[,1]<-as.numeric(stat[,1])
+stat[,2]<-as.numeric(stat[,2])
+stat[,3]<-as.numeric(stat[,3])
+stat[,4]<-as.numeric(stat[,4])
+stat[,5]<-as.factor(stat[,5])
+```
+
+
+
+```{r}
+ggplot(stat, aes(y=V1/60, x=V5))+ geom_violin()+xlab("model")+ggtitle("Distribution of the execution time")+ylab("Time(in minute)")+ theme(axis.text.x = element_text(angle = 70))
+```
+```{r}
+ggplot(stat[21:50,], aes(y=V1/60, x=V5))+ geom_violin()+xlab("model")+ggtitle("Distribution of the execution time")+ylab("Time(in minute)")+ theme(axis.text.x = element_text(angle = 70))
+```
+
+
+
+```{r}
+ggplot(stat, aes(x=ari, y = V1/60,col=V5))+ geom_point()+xlab("ARI")+ylab("Time(in minute)")
+```
+```{r}
+ggplot(stat[21:50,], aes(x=nAIC, y = V1/60,col=V5))+ geom_point()+xlab("AIC")+ylab("Time(in minute)")
+```
+
+
+```{r}
+stat_300k <- stat[1:50,]
+```
+
+
+## Riassunto per le diverse numerosità
+
+### Tempi computazionali
+
+```{r}
+stat_10k <- stat_10k[c(1,2,3,34:43,74:83),]
+# stat_10k[,5]<-stat_10k[,5]*60
+stat_10k[,4] <- c("ZinbWave","ZinbWave\n (Negative Binomial)","NewWave",rep("NewWave\n (common dispersion\n + minibatch)",10),rep("NewWave\n (genewise dispersion\n + minibatch)",10))
+```
+
+```{r}
+tmp1 <- cbind(stat_10k[,c(4:5,1:3)],rep("10",nrow(stat_10k)))
+tmp2 <- cbind(stat_30k[,5],stat_30k[,1]/60,stat_30k[,c(2:4)],rep("30",nrow(stat_30k)))
+tmp3 <- cbind(stat_50k[,5],stat_50k[,1]/60,stat_50k[,c(2:4)],rep("50",nrow(stat_50k)))
+tmp4 <- cbind(stat_100k[,5],stat_100k[,1]/60,stat_100k[,c(2:4)],rep("100",nrow(stat_100k)))
+tmp5 <- cbind(stat_200k[,5],stat_200k[,1]/60,stat_200k[,c(2:4)],rep("200", nrow(stat_200k)))
+tmp6 <- cbind(stat_300k[,5],stat_300k[,1]/60,stat_300k[,c(2:4)],rep("300", nrow(stat_300k)))
+colnames(tmp1)<-colnames(tmp2)<-colnames(tmp3)<-colnames(tmp4)<-colnames(tmp5)<-colnames(tmp6)<-c("model", "time","AIC","BIC","ARI", "cells")
+time_pattern <- rbind(tmp1,tmp2,tmp3,tmp4,tmp5, tmp6)
+
+time_pattern <- aggregate(.~model+cells, time_pattern, median)
+```
+
+```{r}
+time_pattern <- data.frame(time_pattern)
+time_pattern$cells <- as.factor(as.numeric(time_pattern$cells))
+time_pattern$model <- as.factor(time_pattern$model)
+
+```
+
+
+
+
+
+
+### ARI
+
+
+
+
+
+```{r}
+# ggplot(time_pattern[c(1,5,6,10,14,18),], aes(x = as.numeric(as.character(cells)), y =time/60, group = model, col=model))+geom_point()+geom_line()+ylab("Time(in minute)")+xlab("number of cells (thousands)")+scale_color_discrete(name = "Model", labels = c("NewWave","ZINB-WaVE"))
+# 
+# scale_x_continuous(breaks=c(10,50,100,200))
+```
+
+```{r}
+
+```
+
+### Consumo di RAM
+
+```{r}
+mem_new_10k <- read.table("/mnt/federico/BICCN_data/memory/mem_new_10k.txt", header=TRUE, quote="\"")
+new_10k <- mem_new_10k[,c(1,9)]
+new_10k$RSS <- gsub("G", "000000", new_10k$RSS)
+new_10k$RSS <- gsub("M","000", new_10k$RSS)
+new_10k$RSS <- gsub("K","", new_10k$RSS)
+new_10k$RSS <- as.numeric(new_10k$RSS)
+new_10k$index <- as.numeric(as.factor(new_10k$Time))
+new_10k = new_10k %>% group_by(index) %>% summarise(x = sum(RSS))
+new_10k$model <-"NewWave"
+
+mem_nb_10k <- read.table("/mnt/federico/BICCN_data/memory/mem_nb_10k.txt", header=TRUE, quote="\"")
+nb_10k <- mem_nb_10k[,c(1,9)]
+nb_10k$RSS <- gsub("G", "000000", nb_10k$RSS)
+nb_10k$RSS <- gsub("M","000", nb_10k$RSS)
+nb_10k$RSS <- gsub("K","", nb_10k$RSS)
+nb_10k$RSS <- as.numeric(nb_10k$RSS)
+nb_10k$index <- as.numeric(as.factor(nb_10k$Time))
+nb_10k = nb_10k %>% group_by(index) %>% summarise(x = sum(RSS))
+nb_10k$model <-"nbWave"
+
+mem_zinb_10k <- read.table("/mnt/federico/BICCN_data/memory/mem_zinb_10k.txt", header=TRUE, quote="\"")
+zinb_10k <- mem_zinb_10k[,c(1,9)]
+zinb_10k$RSS <- gsub("G", "000000", zinb_10k$RSS)
+zinb_10k$RSS <- gsub("M","000", zinb_10k$RSS)
+zinb_10k$RSS <- gsub("K","", zinb_10k$RSS)
+zinb_10k$RSS <- as.numeric(zinb_10k$RSS)
+zinb_10k$index <- as.numeric(as.factor(zinb_10k$Time))
+zinb_10k = zinb_10k %>% group_by(index) %>% summarise(x = sum(RSS))
+zinb_10k$model <-"ZinbWave"
+
+data <- rbind(new_10k,zinb_10k, nb_10k)
+theme_set(theme_bw())
+# ggplot(data, aes(x=index, y=x/1e6, col=model))+geom_line()+ylab("RAM utilization(in GB)")+
+#   xlab("Time(one observation every 5 second)")+ggtitle("RAM consuming of the two models with 10k cell and 1k genes")
+
+```
+
+```{r}
+mem_new_50k <- read.table("/mnt/federico/BICCN_data/memory/mem_new_50k.txt", header=TRUE, quote="\"")
+new_50k <- mem_new_50k[,c(1,9)]
+new_50k$RSS <- gsub("G", "000000", new_50k$RSS)
+new_50k$RSS <- gsub("M","000", new_50k$RSS)
+new_50k$RSS <- gsub("K","", new_50k$RSS)
+new_50k$RSS <- as.numeric(new_50k$RSS)
+new_50k$index <- as.numeric(as.factor(new_50k$Time))
+new_50k = new_50k %>% group_by(index) %>% summarise(x = sum(RSS))
+new_50k$model <-"NewWave"
+
+mem_nb_50k <- read.table("/mnt/federico/BICCN_data/memory/mem_nb_50k.txt", header=TRUE, quote="\"")
+nb_50k <- mem_nb_50k[,c(1,9)]
+nb_50k$RSS <- gsub("G", "000000", nb_50k$RSS)
+nb_50k$RSS <- gsub("M","000", nb_50k$RSS)
+nb_50k$RSS <- gsub("K","", nb_50k$RSS)
+nb_50k$RSS <- as.numeric(nb_50k$RSS)
+nb_50k$index <- as.numeric(as.factor(nb_50k$Time))
+nb_50k = nb_50k %>% group_by(index) %>% summarise(x = sum(RSS))
+nb_50k$model <-"nbWave"
+
+mem_zinb_50k <- read.table("/mnt/federico/BICCN_data/memory/mem_zinb_50k.txt", header=TRUE, quote="\"")
+zinb_50k <- mem_zinb_50k[,c(1,9)]
+zinb_50k$RSS <- gsub("G", "000000", zinb_50k$RSS)
+zinb_50k$RSS <- gsub("M","000", zinb_50k$RSS)
+zinb_50k$RSS <- gsub("K","", zinb_50k$RSS)
+zinb_50k$RSS <- as.numeric(zinb_50k$RSS)
+zinb_50k$index <- as.numeric(as.factor(zinb_50k$Time))
+zinb_50k = zinb_50k %>% group_by(index) %>% summarise(x = sum(RSS))
+zinb_50k$model <-"ZinbWave"
+
+data <- rbind(new_50k,zinb_50k, nb_50k)
+theme_set(theme_bw())
+# ggplot(data, aes(x=index, y=x/1e6, col=model))+geom_line()+ylab("RAM utilization(in GB)")+
+#   xlab("Time(one observation every 5 second)")+ggtitle("RAM consuming of the two models with 50k cell and 1k genes")
+
+```
+
+
+
+```{r}
+mem_new_100k <- read.table("/mnt/federico/BICCN_data/memory/mem_new_100k.txt", header=TRUE, quote="\"")
+new_100k <- mem_new_100k[,c(1,9)]
+new_100k$RSS <- gsub("G", "000000", new_100k$RSS)
+new_100k$RSS <- gsub("M","000", new_100k$RSS)
+new_100k$RSS <- gsub("K","", new_100k$RSS)
+new_100k$RSS <- as.numeric(new_100k$RSS)
+new_100k$index <- as.numeric(as.factor(new_100k$Time))
+new_100k = new_100k %>% group_by(index) %>% summarise(x = sum(RSS))
+new_100k$model <-"NewWave"
+
+mem_nb_100k <- read.table("/mnt/federico/BICCN_data/memory/mem_nb_100k.txt", header=TRUE, quote="\"")
+nb_100k <- mem_nb_100k[,c(1,9)]
+nb_100k$RSS <- gsub("G", "000000", nb_100k$RSS)
+nb_100k$RSS <- gsub("M","000", nb_100k$RSS)
+nb_100k$RSS <- gsub("K","", nb_100k$RSS)
+nb_100k$RSS <- as.numeric(nb_100k$RSS)
+nb_100k$index <- as.numeric(as.factor(nb_100k$Time))
+nb_100k = nb_100k %>% group_by(index) %>% summarise(x = sum(RSS))
+nb_100k$model <-"nbWave"
+
+mem_zinb_100k <- read.table("/mnt/federico/BICCN_data/memory/mem_zinb_100k.txt", header=TRUE, quote="\"")
+zinb_100k <- mem_zinb_100k[,c(1,9)]
+zinb_100k$RSS <- gsub("G", "000000", zinb_100k$RSS)
+zinb_100k$RSS <- gsub("M","000", zinb_100k$RSS)
+zinb_100k$RSS <- gsub("K","", zinb_100k$RSS)
+zinb_100k$RSS <- as.numeric(zinb_100k$RSS)
+zinb_100k$index <- as.numeric(as.factor(zinb_100k$Time))
+zinb_100k = zinb_100k %>% group_by(index) %>% summarise(x = sum(RSS))
+zinb_100k$model <-"ZinbWave"
+
+data <- rbind(new_100k,zinb_100k, nb_100k)
+theme_set(theme_bw())
+# ggplot(data, aes(x=index, y=x/1e6, col=model))+geom_line()+ylab("RAM utilization(in GB)")+
+#   xlab("Time(one observation every 10 second)")+ggtitle("RAM consuming of the two models with 100k cell and 1k genes")
+
+```
+
+```{r}
+mem_new_200k <- read.table("/mnt/federico/BICCN_data/memory/mem_new_200k.txt", header=TRUE, quote="\"")
+new_200k <- mem_new_200k[,c(1,9)]
+new_200k$RSS <- gsub("G", "000000", new_200k$RSS)
+new_200k$RSS <- gsub("M","000", new_200k$RSS)
+new_200k$RSS <- gsub("K","", new_200k$RSS)
+new_200k$RSS <- as.numeric(new_200k$RSS)
+new_200k$index <- as.numeric(as.factor(new_200k$Time))
+new_200k = new_200k %>% group_by(index) %>% summarise(x = sum(RSS))
+new_200k$model <-"NewWave"
+
+mem_nb_200k <- read.table("/mnt/federico/BICCN_data/memory/mem_nb_200k.txt", header=TRUE, quote="\"")
+nb_200k <- mem_nb_200k[,c(1,9)]
+nb_200k$RSS <- gsub("G", "000000", nb_200k$RSS)
+nb_200k$RSS <- gsub("M","000", nb_200k$RSS)
+nb_200k$RSS <- gsub("K","", nb_200k$RSS)
+nb_200k$RSS <- as.numeric(nb_200k$RSS)
+nb_200k$index <- as.numeric(as.factor(nb_200k$Time))
+nb_200k = nb_200k %>% group_by(index) %>% summarise(x = sum(RSS))
+nb_200k$model <-"nbWave"
+
+mem_zinb_200k <- read.table("/mnt/federico/BICCN_data/memory/mem_zinb_200k.txt", header=TRUE, quote="\"")
+zinb_200k <- mem_zinb_200k[,c(1,9)]
+zinb_200k$RSS <- gsub("G", "000000", zinb_200k$RSS)
+zinb_200k$RSS <- gsub("M","000", zinb_200k$RSS)
+zinb_200k$RSS <- gsub("K","", zinb_200k$RSS)
+zinb_200k$RSS <- as.numeric(zinb_200k$RSS)
+zinb_200k$Time[1:12693]<-paste0("0",":",zinb_200k$Time[1:12693])
+zinb_200k$Time[12694:nrow(zinb_200k)]<-paste0("1",":",zinb_200k$Time[12694:nrow(zinb_200k)])
+zinb_200k$index <- as.numeric(as.factor(zinb_200k$Time))
+zinb_200k = zinb_200k %>% group_by(index) %>% summarise(x = sum(RSS))
+zinb_200k$model <-"ZinbWave"
+
+
+
+data <- rbind(new_200k,zinb_200k, nb_200k)
+theme_set(theme_bw())
+# ggplot(data, aes(x=index, y=x/1e6, col=model))+geom_line()+ylab("RAM utilization(in GB)")+
+#   xlab("Time(one observation every 20 second)")+ggtitle("RAM consuming of the two models with 200k cell and 1k genes")
+
+```
+```{r}
+mem_new_all <- read.table("/mnt/federico/BICCN_data/memory/mem_new_all.txt", header=TRUE, quote="\"")
+new_all <- mem_new_all[,c(1,9)]
+new_all$RSS <- gsub("G", "000000", new_all$RSS)
+new_all$RSS <- gsub("M","000", new_all$RSS)
+new_all$RSS <- gsub("K","", new_all$RSS)
+new_all$RSS <- as.numeric(new_all$RSS)
+new_all$Time[1:17443]<-paste0("0",":",new_all$Time[1:17443])
+new_all$Time[17444:nrow(new_all)]<-paste0("1",":",new_all$Time[17444:nrow(new_all)])
+new_all$index <- as.numeric(as.factor(new_all$Time))
+new_all = new_all %>% group_by(index) %>% summarise(x = sum(RSS))
+new_all$model <-"NewWave"
+
+mem_nb_all <- read.table("/mnt/federico/BICCN_data/memory/mem_nb_all.txt", header=TRUE, quote="\"")
+nb_all <- mem_nb_all[,c(1,9)]
+nb_all$RSS <- gsub("G", "000000", nb_all$RSS)
+nb_all$RSS <- gsub("M","000", nb_all$RSS)
+nb_all$RSS <- gsub("K","", nb_all$RSS)
+nb_all$RSS <- as.numeric(nb_all$RSS)
+nb_all$Time[1:10874]<-paste0("0",":",nb_all$Time[1:10874])
+nb_all$Time[10875:nrow(nb_all)]<-paste0("1",":",nb_all$Time[10875:nrow(nb_all)])
+nb_all$index <- as.numeric(as.factor(nb_all$Time))
+nb_all = nb_all %>% group_by(index) %>% summarise(x = sum(RSS))
+nb_all$model <-"nbWave"
+
+mem_zinb_all <- read.table("/mnt/federico/BICCN_data/memory/mem_zinb_all.txt", header=TRUE, quote="\"")
+zinb_all <- mem_zinb_all[,c(1,9)]
+zinb_all$RSS <- gsub("G", "000000", zinb_all$RSS)
+zinb_all$RSS <- gsub("M","000", zinb_all$RSS)
+zinb_all$RSS <- gsub("K","", zinb_all$RSS)
+zinb_all$RSS <- as.numeric(zinb_all$RSS)
+zinb_all$Time[1:14697]<-paste0("0",":",zinb_all$Time[1:14697])
+zinb_all$Time[14698:nrow(zinb_all)]<-paste0("1",":",zinb_all$Time[14698:nrow(zinb_all)])
+zinb_all$index <- as.numeric(as.factor(zinb_all$Time))
+zinb_all = zinb_all %>% group_by(index) %>% summarise(x = sum(RSS))
+zinb_all$model <-"ZinbWave"
+
+
+
+data <- rbind(new_all,zinb_all, nb_all)
+theme_set(theme_bw())
+# ggplot(data, aes(x=index, y=x/1e6, col=model))+geom_line()+ylab("RAM utilization(in GB)")+
+#   xlab("Time(one observation every 20 second)")+ggtitle("RAM consuming of the two models with 312k cell and 1k genes")
+
+```
+```{r}
+memory_pattern <- data.frame(rbind(cbind(max(new_10k$x),"NewWave","10"),
+                        cbind(max(new_50k$x),"NewWave","50"),
+                        cbind(max(new_100k$x),"NewWave","100"),
+                        cbind(max(new_200k$x),"NewWave","200"),
+                        cbind(max(new_all$x),"NewWave","310"),
+                        cbind(max(nb_10k$x),"nbWave","10"),
+                        cbind(max(nb_50k$x),"nbWave","50"),
+                        cbind(max(nb_100k$x),"nbWave","100"),
+                        cbind(max(nb_200k$x),"nbWave","200"),
+                        cbind(max(nb_all$x),"nbWave","310"),
+                        cbind(max(zinb_10k$x),"ZinbWave","10"),
+                        cbind(max(zinb_50k$x),"ZinbWave","50"),
+                        cbind(max(zinb_100k$x),"ZinbWave","100"),
+                        cbind(max(zinb_200k$x),"ZinbWave","200"),
+                        cbind(max(zinb_all$x),"ZinbWave","310")))
+
+
+memory_pattern$X1 <- as.numeric(memory_pattern$X1)
+memory_pattern$X2 <- as.factor(memory_pattern$X2)
+memory_pattern$X3 <- as.factor(as.numeric(memory_pattern$X3))
+
+ggplot(memory_pattern, aes(x = as.numeric(as.character(X3)), y =X1/1e6, col=X2))+geom_point()+geom_line()+ylab("Memory(in GB)")+xlab("number of cells (thousands)")
+
+```
+
+
+## Tempi computazionali e consumo di RAM all'aumentare del numero di core
+
+
+```{r}
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/20_cores_genepar1.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/20_cores_genepar2.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/20_cores_genepar3.Rdata")
+# load("/mnt/federico/BICCN_data/var_cores/tempo/res/20_cores_genepar4.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/20_cores_genepar5.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/20_cores_genepar6.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/20_cores_genepar7.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/20_cores_genepar8.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/20_cores_genepar9.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/20_cores_genepar10.Rdata")
+stat_gene_parmini_20core <- rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3,stat_gene_parmini3,stat_gene_parmini5,stat_gene_parmini6,stat_gene_parmini7,stat_gene_parmini8,stat_gene_parmini9,stat_gene_parmini10)
+```
+```{r}
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/30_cores_genepar1.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/30_cores_genepar2.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/30_cores_genepar3.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/30_cores_genepar4.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/30_cores_genepar5.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/30_cores_genepar6.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/30_cores_genepar7.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/30_cores_genepar8.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/30_cores_genepar9.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/30_cores_genepar10.Rdata")
+stat_gene_parmini_30core <- rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3,stat_gene_parmini3,stat_gene_parmini5,stat_gene_parmini6,stat_gene_parmini7,stat_gene_parmini8,stat_gene_parmini9,stat_gene_parmini10)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/40_cores_genepar1.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/40_cores_genepar2.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/40_cores_genepar3.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/40_cores_genepar4.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/40_cores_genepar5.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/40_cores_genepar6.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/40_cores_genepar7.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/40_cores_genepar8.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/40_cores_genepar9.Rdata")
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/40_cores_genepar10.Rdata")
+stat_gene_parmini_40core <- rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3,stat_gene_parmini3,stat_gene_parmini5,stat_gene_parmini6,stat_gene_parmini7,stat_gene_parmini8,stat_gene_parmini9,stat_gene_parmini10)
+```
+
+```{r}
+var_cores <- data.frame(rbind(cbind(stat_gene_parmini_10core,rep("10", 10)),
+               cbind(stat_gene_parmini_20core, rep("20", 10)),
+                   cbind(stat_gene_parmini_30core, rep("30", 10)),
+                   cbind(stat_gene_parmini_40core, rep("40", 10))))
+var_cores$V1 <- as.numeric(var_cores$V1)
+var_cores$V3 = "NewWave" 
+var_cores <- aggregate(var_cores, by = list(var_cores$V2),FUN = mean)
+ggplot(var_cores, aes(x = Group.1, y =V1/60))+geom_point()+ylab("Time(in minute)")+xlab("number of cells (thousands)")+ggtitle("Execution time with different number of cores ")
+```
+```{r}
+time_zinb_var <- NULL
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/time_zinb_10.Rdata")
+time_zinb_var <- append(time_zinb_var,time)
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/time_zinb_20.Rdata")
+time_zinb_var <- append(time_zinb_var,time)
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/time_zinb_30.Rdata")
+time_zinb_var <- append(time_zinb_var,time)
+load("/mnt/federico/BICCN_data/var_cores/tempo/res/time_zinb_40.Rdata")
+time_zinb_var <- append(time_zinb_var,time)
+zinb_v <- data.frame(time = time_zinb_var, cores = seq.int(10,40,10))
+
+```
+
+```{r}
+ggplot(zinb_v, aes(x = cores, y =time/60))+geom_point()+ylab("Time(in minute)")+xlab("number of cells (thousands)")+ggtitle("Execution time with different number of cores ")
+```
+
+```{r}
+mem_10_cores <- read.table("/mnt/federico/BICCN_data/var_cores/memoria/mem_varcores_10.txt", header=TRUE, quote="\"")
+mem_10_cores <- mem_10_cores[,c(1,9)]
+mem_10_cores$RSS <- gsub("G", "000000", mem_10_cores$RSS)
+mem_10_cores$RSS <- gsub("M","000", mem_10_cores$RSS)
+mem_10_cores$RSS <- gsub("K","", mem_10_cores$RSS)
+mem_10_cores$RSS <- as.numeric(mem_10_cores$RSS)
+mem_10_cores$index <- as.numeric(as.factor(mem_10_cores$Time))
+mem_10_cores = mem_10_cores %>% group_by(index) %>% summarise(x = sum(RSS))
+mem_10_cores$model <-"10_cores"
+
+mem_20_cores <- read.table("/mnt/federico/BICCN_data/var_cores/memoria/mem_varcores_20.txt", header=TRUE, quote="\"")
+mem_20_cores <- mem_20_cores[,c(1,9)]
+mem_20_cores$RSS <- gsub("G", "000000", mem_20_cores$RSS)
+mem_20_cores$RSS <- gsub("M","000", mem_20_cores$RSS)
+mem_20_cores$RSS <- gsub("K","", mem_20_cores$RSS)
+mem_20_cores$RSS <- as.numeric(mem_20_cores$RSS)
+mem_20_cores$index <- as.numeric(as.factor(mem_20_cores$Time))
+mem_20_cores = mem_20_cores %>% group_by(index) %>% summarise(x = sum(RSS))
+mem_20_cores$model <-"20_cores"
+
+mem_30_cores <- read.table("/mnt/federico/BICCN_data/var_cores/memoria/mem_varcores_30.txt", header=TRUE, quote="\"")
+mem_30_cores <- mem_30_cores[,c(1,9)]
+mem_30_cores$RSS <- gsub("G", "000000", mem_30_cores$RSS)
+mem_30_cores$RSS <- gsub("M","000", mem_30_cores$RSS)
+mem_30_cores$RSS <- gsub("K","", mem_30_cores$RSS)
+mem_30_cores$RSS <- as.numeric(mem_30_cores$RSS)
+mem_30_cores$index <- as.numeric(as.factor(mem_30_cores$Time))
+mem_30_cores = mem_30_cores %>% group_by(index) %>% summarise(x = sum(RSS))
+mem_30_cores$model <-"30_cores"
+
+mem_40_cores <- read.table("/mnt/federico/BICCN_data/var_cores/memoria/mem_varcores_40.txt", header=TRUE, quote="\"")
+mem_40_cores <- mem_40_cores[,c(1,9)]
+mem_40_cores$RSS <- gsub("G", "000000", mem_40_cores$RSS)
+mem_40_cores$RSS <- gsub("M","000", mem_40_cores$RSS)
+mem_40_cores$RSS <- gsub("K","", mem_40_cores$RSS)
+mem_40_cores$RSS <- as.numeric(mem_40_cores$RSS)
+mem_40_cores$index <- as.numeric(as.factor(mem_40_cores$Time))
+mem_40_cores = mem_40_cores %>% group_by(index) %>% summarise(x = sum(RSS))
+mem_40_cores$model <-"40_cores"
+
+
+data_mem <- rbind(mem_10_cores,mem_20_cores,mem_30_cores,mem_40_cores)
+theme_set(theme_bw())
+ggplot(data_mem, aes(x=index, y=x/1e6, col=model))+geom_line()+ylab("RAM utilization(in GB)")+
+  xlab("Time(one observation every 10 second)")+ggtitle("RAM consuming with different number of cores ")
+```
+
+
+
+
+## ZINBWAVE
+
+```{r}
+mem_10_cores_zinb <- read.table("/mnt/federico/BICCN_data/var_cores/memoria/mem_varcores_10_zinb.txt", header=TRUE, quote="\"")
+mem_10_cores_zinb <- mem_10_cores_zinb[,c(1,9)]
+mem_10_cores_zinb$RSS <- gsub("G", "000000", mem_10_cores_zinb$RSS)
+mem_10_cores_zinb$RSS <- gsub("M","000", mem_10_cores_zinb$RSS)
+mem_10_cores_zinb$RSS <- gsub("K","", mem_10_cores_zinb$RSS)
+mem_10_cores_zinb$RSS <- as.numeric(mem_10_cores_zinb$RSS)
+mem_10_cores_zinb$index <- as.numeric(as.factor(mem_10_cores_zinb$Time))
+mem_10_cores_zinb = mem_10_cores_zinb %>% group_by(index) %>% summarise(x = sum(RSS))
+mem_10_cores_zinb$model <-"10_cores"
+
+mem_20_cores_zinb <- read.table("/mnt/federico/BICCN_data/var_cores/memoria/mem_varcores_20_zinb.txt", header=TRUE, quote="\"")
+mem_20_cores_zinb <- mem_20_cores_zinb[,c(1,9)]
+mem_20_cores_zinb$RSS <- gsub("G", "000000", mem_20_cores_zinb$RSS)
+mem_20_cores_zinb$RSS <- gsub("M","000", mem_20_cores_zinb$RSS)
+mem_20_cores_zinb$RSS <- gsub("K","", mem_20_cores_zinb$RSS)
+mem_20_cores_zinb$RSS <- as.numeric(mem_20_cores_zinb$RSS)
+mem_20_cores_zinb$index <- as.numeric(as.factor(mem_20_cores_zinb$Time))
+mem_20_cores_zinb = mem_20_cores_zinb %>% group_by(index) %>% summarise(x = sum(RSS))
+mem_20_cores_zinb$model <-"20_cores"
+
+mem_30_cores_zinb <- read.table("/mnt/federico/BICCN_data/var_cores/memoria/mem_varcores_30_zinb.txt", header=TRUE, quote="\"")
+mem_30_cores_zinb <- mem_30_cores_zinb[,c(1,9)]
+mem_30_cores_zinb$RSS <- gsub("G", "000000", mem_30_cores_zinb$RSS)
+mem_30_cores_zinb$RSS <- gsub("M","000", mem_30_cores_zinb$RSS)
+mem_30_cores_zinb$RSS <- gsub("K","", mem_30_cores_zinb$RSS)
+mem_30_cores_zinb$RSS <- as.numeric(mem_30_cores_zinb$RSS)
+mem_30_cores_zinb$index <- as.numeric(as.factor(mem_30_cores_zinb$Time))
+mem_30_cores_zinb = mem_30_cores_zinb %>% group_by(index) %>% summarise(x = sum(RSS))
+mem_30_cores_zinb$model <-"30_cores"
+
+mem_40_cores_zinb <- read.table("/mnt/federico/BICCN_data/var_cores/memoria/mem_varcores_40_zinb.txt", header=TRUE, quote="\"")
+mem_40_cores_zinb <- mem_40_cores_zinb[,c(1,9)]
+mem_40_cores_zinb$RSS <- gsub("G", "000000", mem_40_cores_zinb$RSS)
+mem_40_cores_zinb$RSS <- gsub("M","000", mem_40_cores_zinb$RSS)
+mem_40_cores_zinb$RSS <- gsub("K","", mem_40_cores_zinb$RSS)
+mem_40_cores_zinb$RSS <- as.numeric(mem_40_cores_zinb$RSS)
+mem_40_cores_zinb$index <- as.numeric(as.factor(mem_40_cores_zinb$Time))
+mem_40_cores_zinb = mem_40_cores_zinb %>% group_by(index) %>% summarise(x = sum(RSS))
+mem_40_cores_zinb$model <-"40_cores"
+
+
+data_mem_zinb <- rbind(mem_10_cores_zinb,mem_20_cores_zinb,mem_30_cores_zinb, mem_40_cores_zinb)
+theme_set(theme_bw())
+ggplot(data_mem_zinb, aes(x=index, y=x/1e6, col=model))+geom_line()+ylab("RAM utilization(in GB)")+
+  xlab("Time(one observation every 10 second)")+ggtitle("RAM consuming with different number of cores ")
+```
+
+```{r}
+mem_z <- rbind(max(mem_10_cores_zinb$x), max(mem_20_cores_zinb$x), max(mem_30_cores_zinb$x),max(mem_40_cores_zinb$x))
+
+all_z <- data.frame(zinb_v,memory=mem_z)
+```
+
+
+
+# Confronto sui dati 10xBrainData ( solo riduzione della dimensionalità)
+
+
+
+Essendo che le due implementazioni hanno delle sottili differenze le confronterò anche in termini di AIC.
+
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf51_10000.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf52_10000.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf53_10000.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf54_10000.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf55_10000.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf56_10000.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf57_10000.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf58_10000.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf59_10000.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf510_10000.Rdata")
+
+stat_hdf5 <- rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3,stat_gene_parmini4,stat_gene_parmini3,stat_gene_parmini6,stat_gene_parmini7,stat_gene_parmini8,stat_gene_parmini9,stat_gene_parmini10)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix1_10000.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix2_10000.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix3_10000.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix4_10000.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix5_10000.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix6_10000.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix7_10000.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix8_10000.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix9_10000.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix10_10000.Rdata")
+
+stat_matrix <- rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3,stat_gene_parmini4,stat_gene_parmini3,stat_gene_parmini6,stat_gene_parmini7,stat_gene_parmini8,stat_gene_parmini9,stat_gene_parmini10)
+```
+
+```{r}
+stat_10 <- as.data.frame(rbind(cbind(stat_hdf5, rep("hdf5", 10)),
+                            cbind(stat_matrix, rep("matrix", 10))))
+stat_10[,1]<-as.numeric(stat_10[,1])
+stat_10[,2]<-as.numeric(stat_10[,2])
+```
+
+
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf51_1e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf52_1e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf53_1e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf54_1e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf55_1e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf56_1e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf57_1e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf58_1e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf59_1e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf510_1e+05.Rdata")
+
+stat_hdf5 <- rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3,stat_gene_parmini4,stat_gene_parmini3,stat_gene_parmini6,stat_gene_parmini7,stat_gene_parmini8,stat_gene_parmini9,stat_gene_parmini10)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix1_1e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix2_1e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix3_1e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix4_1e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix5_1e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix6_1e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix7_1e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix8_1e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix9_1e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix10_1e+05.Rdata")
+
+stat_matrix <- rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3,stat_gene_parmini4,stat_gene_parmini3,stat_gene_parmini6,stat_gene_parmini7,stat_gene_parmini8,stat_gene_parmini9,stat_gene_parmini10)
+```
+
+```{r}
+stat_100 <- as.data.frame(rbind(cbind(stat_hdf5, rep("hdf5", 10)),
+                            cbind(stat_matrix, rep("matrix", 10))))
+stat_100[,1]<-as.numeric(stat_100[,1])
+stat_100[,2]<-as.numeric(stat_100[,2])
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf51_2e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf52_2e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf53_2e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf54_2e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf55_2e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf56_2e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf57_2e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf58_2e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf59_2e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf510_2e+05.Rdata")
+
+stat_hdf5 <- rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3,stat_gene_parmini4,stat_gene_parmini3,stat_gene_parmini6,stat_gene_parmini7,stat_gene_parmini8,stat_gene_parmini9,stat_gene_parmini10)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix1_2e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix2_2e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix3_2e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix4_2e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix5_2e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix6_2e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix7_2e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix8_2e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix9_2e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix10_2e+05.Rdata")
+
+stat_matrix <- rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3,stat_gene_parmini4,stat_gene_parmini3,stat_gene_parmini6,stat_gene_parmini7,stat_gene_parmini8,stat_gene_parmini9,stat_gene_parmini10)
+```
+
+```{r}
+stat_200 <- as.data.frame(rbind(cbind(stat_hdf5, rep("hdf5", 10)),
+                            cbind(stat_matrix, rep("matrix", 10))))
+stat_200[,1]<-as.numeric(stat_200[,1])
+stat_200[,2]<-as.numeric(stat_200[,2])
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf51_3e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf52_3e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf53_3e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf54_3e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf55_3e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf56_3e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf57_3e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf58_3e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf59_3e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf510_3e+05.Rdata")
+
+
+stat_hdf5 <- rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3,stat_gene_parmini4,stat_gene_parmini3,stat_gene_parmini6,stat_gene_parmini7,stat_gene_parmini8,stat_gene_parmini9,stat_gene_parmini10)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix1_3e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix2_3e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix3_3e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix4_3e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix5_3e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix6_3e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix7_3e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix8_3e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix9_3e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix10_3e+05.Rdata")
+
+stat_matrix <- rbind(stat_gene_parmini1,stat_gene_parmini2,
+                     stat_gene_parmini3,stat_gene_parmini4,
+                     stat_gene_parmini5,stat_gene_parmini6,
+                     stat_gene_parmini7,stat_gene_parmini8,
+                     stat_gene_parmini9,stat_gene_parmini10)
+
+```
+
+
+```{r}
+stat_300 <- as.data.frame(rbind(cbind(stat_hdf5, rep("hdf5", 10)),
+                            cbind(stat_matrix, rep("matrix", 10))))
+stat_300[,1]<-as.numeric(stat_300[,1])
+stat_300[,2]<-as.numeric(stat_300[,2])
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf51_6e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf52_6e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf53_6e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf54_6e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf55_6e+05.Rdata")
+# load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf56_6e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf57_6e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf58_6e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf59_6e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf510_6e+05.Rdata")
+
+stat_hdf5 <- rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3,stat_gene_parmini4,stat_gene_parmini5,
+                   # stat_gene_parmini6,
+                   stat_gene_parmini7,stat_gene_parmini8,
+                   stat_gene_parmini9,stat_gene_parmini10)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix1_6e+05.Rdata")
+# load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix2_6e+05.Rdata")
+# load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix3_6e+05.Rdata")
+# load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix4_6e+05.Rdata")
+# load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix5_6e+05.Rdata")
+# load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix6_6e+05.Rdata")
+# load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix7_6e+05.Rdata")
+# load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix8_6e+05.Rdata")
+# load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix9_6e+05.Rdata")
+# load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix10_6e+05.Rdata")
+
+stat_matrix <- stat_gene_parmini1
+```
+
+
+```{r}
+stat_600 <- as.data.frame(rbind(cbind(stat_hdf5, rep("hdf5", 10)),
+                            cbind(stat_matrix, rep("matrix", 10))))
+stat_600[,1]<-as.numeric(stat_600[,1])
+stat_600[,2]<-as.numeric(stat_600[,2])
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf51_1306127.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf52_1306127.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf53_1306127.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf54_1306127.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf55_1306127.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf56_1306127.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf57_1306127.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf58_1306127.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf59_1306127.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf510_1306127.Rdata")
+
+stat_hdf5 <- rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3,stat_gene_parmini4,stat_gene_parmini5,
+                   stat_gene_parmini6,
+                   stat_gene_parmini7,stat_gene_parmini8,
+                   stat_gene_parmini9,stat_gene_parmini10)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix1_1306127.Rdata")
+# load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix2_6e+05.Rdata")
+# load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix3_6e+05.Rdata")
+# load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix4_6e+05.Rdata")
+# load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix5_6e+05.Rdata")
+# load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix6_6e+05.Rdata")
+# load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix7_6e+05.Rdata")
+# load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix8_6e+05.Rdata")
+# load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix9_6e+05.Rdata")
+# load("/mnt/federico/BICCN_data/hdf5_example/res/performance_matrix10_6e+05.Rdata")
+
+stat_matrix <- stat_gene_parmini1
+```
+
+
+```{r}
+stat_all <- as.data.frame(rbind(cbind(stat_hdf5, rep("hdf5", 10)),
+                            cbind(stat_matrix, rep("matrix", 1))))
+stat_all[,1]<-as.numeric(stat_all[,1])
+stat_all[,2]<-as.numeric(stat_all[,2])
+```
+
+
+```{r}
+stat_10$n_cell <- "10000"
+stat_100$n_cell <- "100000"
+stat_200$n_cell <- "200000"
+stat_300$n_cell <- "300000"
+stat_600$n_cell <- "600000"
+stat_all$n_cell <- "1300000"
+stat_de <- rbind(stat_10,stat_100, stat_200, stat_300, stat_600, stat_all)
+stat_de$n_cell <- as.numeric(stat_de$n_cell)
+
+```
+
+```{r}
+stat_de <- aggregate(V1~n_cell+V4, stat_de, mean)
+```
+
+
+
+```{r}
+colnames(stat_de)[2] <- "Methods"
+ggplot(stat_de, aes(y=V1/60,x=n_cell,group=Methods, col=Methods))+geom_point()+geom_line()+ylab("Time(in minute)")+xlab("Number of cell")+ggtitle("Time consumption of NewWave", subtitle = "Using TENxBrainData")+ labs(fill = "Methods")
+```
+
+
+```{r}
+stat_10$n_cell <- "10000"
+stat_100$n_cell <- "100000"
+stat_200$n_cell <- "200000"
+stat_300$n_cell <- "300000"
+stat_600$n_cell <- "600000"
+stat_all$n_cell <- "1200000"
+stat_deA <- rbind(stat_10,stat_100, stat_200, stat_200, stat_600, stat_all)
+stat_deA$n_cell <- as.numeric(stat_deA$n_cell)
+
+```
+
+```{r}
+stat_deA <- aggregate(nAIC_genemini_all~n_cell+V4, stat_deA, mean)
+```
+
+Confronto l'AIC delle due implementazioni dato che l'inizializzazione è leggermente diversa.
+```{r}
+colnames(stat_deA)[2] <- "Methods"
+ggplot(stat_deA, aes(y=nAIC_genemini_all,x=n_cell,group=Methods, col=Methods))+geom_point()+geom_line()+ylab("AIC")+xlab("Number of cell")+ggtitle("AIC", subtitle = "Using TENxBrainData")+ labs(fill = "Methods")
+```
+
+Le linee sono talmente simili che si sovrappongono
+
+
+
+### Consumo di RAM
+
+
+
+```{r}
+mem_h_10<- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_hdf5_10.txt", header=TRUE, quote="\"")
+h_10 <- mem_h_10[,c(1,9)]
+h_10$RSS <- gsub("G", "000000", h_10$RSS)
+h_10$RSS <- gsub("M","000", h_10$RSS)
+h_10$RSS <- gsub("K","", h_10$RSS)
+# h_10$Time[1:15756]<-paste0("0",":",h_10$Time[1:15756])
+# h_10$Time[15757:nrow(h_10)]<-paste0("1",":",h_10$Time[15757:nrow(h_10)])
+h_10$RSS <- as.numeric(h_10$RSS)
+h_10$index <- as.numeric(as.factor(h_10$Time))
+h_10 = h_10 %>% group_by(index) %>% summarise(x = sum(RSS))
+h_10$model <-"hdf5"
+
+mem_m_10 <- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_matrix_10k.txt", header=TRUE, quote="\"")
+m_10 <- mem_m_10[,c(1,9)]
+m_10$RSS <- gsub("G", "000000", m_10$RSS)
+m_10$RSS <- gsub("M","000", m_10$RSS)
+m_10$RSS <- gsub("K","", m_10$RSS)
+# m_10$Time[1:15575]<-paste0("0",":",m_10$Time[1:15575])
+# m_10$Time[15576:nrow(m_10)]<-paste0("1",":",m_10$Time[15576:nrow(m_10)])
+m_10$RSS <- as.numeric(m_10$RSS)
+m_10$index <- as.numeric(as.factor(m_10$Time))
+m_10 = m_10 %>% group_by(index) %>% summarise(x = sum(RSS))
+m_10$model <-"matrix"
+
+
+mem_10 <- rbind(h_10,m_10)
+# theme_set(theme_bw())
+# ggplot(mem_10, aes(x=index, y=x/1e6, col=model))+geom_line()+ylab("RAM utilization(in GB)")+
+#   xlab("Time(one observation every 10 second)")+ggtitle("RAM consumption with 10k cell and 1k genes")
+
+```
+```{r}
+mem_h_100<- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_hdf5_100.txt", header=TRUE, quote="\"")
+h_100 <- mem_h_100[,c(1,9)]
+h_100$RSS <- gsub("G", "000000", h_100$RSS)
+h_100$RSS <- gsub("M","000", h_100$RSS)
+h_100$RSS <- gsub("K","", h_100$RSS)
+# h_100$Time[1:15756]<-paste0("0",":",h_100$Time[1:15756])
+# h_100$Time[15757:nrow(h_100)]<-paste0("1",":",h_100$Time[15757:nrow(h_100)])
+h_100$RSS <- as.numeric(h_100$RSS)
+h_100$index <- as.numeric(as.factor(h_100$Time))
+h_100 = h_100 %>% group_by(index) %>% summarise(x = sum(RSS))
+h_100$model <-"hdf5"
+
+mem_m_100 <- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_matrix_100k.txt", header=TRUE, quote="\"")
+m_100 <- mem_m_100[,c(1,9)]
+m_100$RSS <- gsub("G", "000000", m_100$RSS)
+m_100$RSS <- gsub("M","000", m_100$RSS)
+m_100$RSS <- gsub("K","", m_100$RSS)
+# m_100$Time[1:15575]<-paste0("0",":",m_100$Time[1:15575])
+# m_100$Time[15576:nrow(m_100)]<-paste0("1",":",m_100$Time[15576:nrow(m_100)])
+m_100$RSS <- as.numeric(m_100$RSS)
+m_100$index <- as.numeric(as.factor(m_100$Time))
+m_100 = m_100 %>% group_by(index) %>% summarise(x = sum(RSS))
+m_100$model <-"matrix"
+
+
+mem_100 <- rbind(h_100,m_100)
+theme_set(theme_bw())
+# ggplot(mem_100, aes(x=index, y=x/1e6, col=model))+geom_line()+ylab("RAM utilization(in GB)")+
+#   xlab("Time(one observation every 20 second)")+ggtitle("RAM consumption with 100k cell and 1k genes")
+
+```
+```{r}
+mem_h_200<- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_hdf5_200.txt", header=TRUE, quote="\"")
+h_200 <- mem_h_200[,c(1,9)]
+h_200$RSS <- gsub("G", "000000", h_200$RSS)
+h_200$RSS <- gsub("M","000", h_200$RSS)
+h_200$RSS <- gsub("K","", h_200$RSS)
+# h_200$Time[1:15756]<-paste0("0",":",h_200$Time[1:15756])
+# h_200$Time[15757:nrow(h_200)]<-paste0("1",":",h_200$Time[15757:nrow(h_200)])
+h_200$RSS <- as.numeric(h_200$RSS)
+h_200$index <- as.numeric(as.factor(h_200$Time))
+h_200 = h_200 %>% group_by(index) %>% summarise(x = sum(RSS))
+h_200$model <-"hdf5"
+
+mem_m_200 <- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_matrix_200k.txt", header=TRUE, quote="\"")
+m_200 <- mem_m_200[,c(1,9)]
+m_200$RSS <- gsub("G", "000000", m_200$RSS)
+m_200$RSS <- gsub("M","000", m_200$RSS)
+m_200$RSS <- gsub("K","", m_200$RSS)
+# m_200$Time[1:15575]<-paste0("0",":",m_200$Time[1:15575])
+# m_200$Time[15576:nrow(m_200)]<-paste0("1",":",m_200$Time[15576:nrow(m_200)])
+m_200$RSS <- as.numeric(m_200$RSS)
+m_200$index <- as.numeric(as.factor(m_200$Time))
+m_200 = m_200 %>% group_by(index) %>% summarise(x = sum(RSS))
+m_200$model <-"matrix"
+
+
+mem_200 <- rbind(h_200,m_200)
+theme_set(theme_bw())
+# ggplot(mem_200, aes(x=index, y=x/1e6, col=model))+geom_line()+ylab("RAM utilization(in GB)")+
+#   xlab("Time(one observation every 20 second)")+ggtitle("RAM consumption with 200k cell and 1k genes")
+
+```
+```{r}
+mem_h_300<- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_hdf5_300.txt", header=TRUE, quote="\"")
+h_300 <- mem_h_300[,c(1,9)]
+h_300$RSS <- gsub("G", "000000", h_300$RSS)
+h_300$RSS <- gsub("M","000", h_300$RSS)
+h_300$RSS <- gsub("K","", h_300$RSS)
+# h_300$Time[1:15756]<-paste0("0",":",h_300$Time[1:15756])
+# h_300$Time[15757:nrow(h_300)]<-paste0("1",":",h_300$Time[15757:nrow(h_300)])
+h_300$RSS <- as.numeric(h_300$RSS)
+h_300$index <- as.numeric(as.factor(h_300$Time))
+h_300 = h_300 %>% group_by(index) %>% summarise(x = sum(RSS))
+h_300$model <-"hdf5"
+
+mem_m_300 <- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_matrix_300k.txt", header=TRUE, quote="\"")
+m_300 <- mem_m_300[,c(1,9)]
+m_300$RSS <- gsub("G", "000000", m_300$RSS)
+m_300$RSS <- gsub("M","000", m_300$RSS)
+m_300$RSS <- gsub("K","", m_300$RSS)
+# m_300$Time[1:15575]<-paste0("0",":",m_300$Time[1:15575])
+# m_300$Time[15576:nrow(m_300)]<-paste0("1",":",m_300$Time[15576:nrow(m_300)])
+m_300$RSS <- as.numeric(m_300$RSS)
+m_300$index <- as.numeric(as.factor(m_300$Time))
+m_300 = m_300 %>% group_by(index) %>% summarise(x = sum(RSS))
+m_300$model <-"matrix"
+
+
+mem_300 <- rbind(h_300,m_300)
+theme_set(theme_bw())
+# ggplot(mem_300, aes(x=index, y=x/1e6, col=model))+geom_line()+ylab("RAM utilization(in GB)")+
+#   xlab("Time(one observation every 20 second)")+ggtitle("RAM consumption with 300k cell and 1k genes")
+
+```
+
+
+
+```{r}
+mem_h_600<- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_hdf5_600k.txt", header=TRUE, quote="\"")
+h_600 <- mem_h_600[,c(1,9)]
+h_600$RSS <- gsub("G", "000000", h_600$RSS)
+h_600$RSS <- gsub("M","000", h_600$RSS)
+h_600$RSS <- gsub("K","", h_600$RSS)
+# h_600$Time[1:15756]<-paste0("0",":",h_600$Time[1:15756])
+# h_600$Time[15757:nrow(h_600)]<-paste0("1",":",h_600$Time[15757:nrow(h_600)])
+h_600$RSS <- as.numeric(h_600$RSS)
+h_600$index <- as.numeric(as.factor(h_600$Time))
+h_600 = h_600 %>% group_by(index) %>% summarise(x = sum(RSS))
+h_600$model <-"hdf5"
+
+mem_m_600 <- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_matrix_600k.txt", header=TRUE, quote="\"")
+m_600 <- mem_m_600[,c(1,9)]
+m_600$RSS <- gsub("G", "000000", m_600$RSS)
+m_600$RSS <- gsub("M","000", m_600$RSS)
+m_600$RSS <- gsub("K","", m_600$RSS)
+# m_600$Time[1:15575]<-paste0("0",":",m_600$Time[1:15575])
+# m_600$Time[15576:nrow(m_600)]<-paste0("1",":",m_600$Time[15576:nrow(m_600)])
+m_600$RSS <- as.numeric(m_600$RSS)
+m_600$index <- as.numeric(as.factor(m_600$Time))
+m_600 = m_600 %>% group_by(index) %>% summarise(x = sum(RSS))
+m_600$model <-"matrix"
+
+
+mem_600 <- rbind(h_600,m_600)
+theme_set(theme_bw())
+# ggplot(mem_600, aes(x=index, y=x/1e6, col=model))+geom_line()+ylab("RAM utilization(in GB)")+
+#   xlab("Time(one observation every 20 second)")+ggtitle("RAM consumption with 600k cell and 1k genes")
+
+```
+
+```{r}
+mem_h_all<- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_hdf5_all.txt", header=TRUE, quote="\"")
+h_all <- mem_h_all[,c(1,9)]
+h_all$RSS <- gsub("G", "000000", h_all$RSS)
+h_all$RSS <- gsub("M","000", h_all$RSS)
+h_all$RSS <- gsub("K","", h_all$RSS)
+h_all$Time[1:14380]<-paste0("0",":",h_all$Time[1:14380])
+h_all$Time[14381:nrow(h_all)]<-paste0("1",":",h_all$Time[14381:nrow(h_all)])
+h_all$RSS <- as.numeric(h_all$RSS)
+h_all$index <- as.numeric(as.factor(h_all$Time))
+h_all = h_all %>% group_by(index) %>% summarise(x = sum(RSS))
+h_all$model <-"hdf5"
+
+mem_m_all <- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_matrix_all.txt", header=TRUE, quote="\"")
+m_all <- mem_m_all[,c(1,9)]
+m_all$RSS <- gsub("G", "000000", m_all$RSS)
+m_all$RSS <- gsub("M","000", m_all$RSS)
+m_all$RSS <- gsub("K","", m_all$RSS)
+m_all$Time[1:15575]<-paste0("0",":",m_all$Time[1:15575])
+m_all$Time[15576:nrow(m_all)]<-paste0("1",":",m_all$Time[15576:nrow(m_all)])
+m_all$RSS <- as.numeric(m_all$RSS)
+m_all$index <- as.numeric(as.factor(m_all$Time))
+m_all = m_all %>% group_by(index) %>% summarise(x = sum(RSS))
+m_all$model <-"matrix"
+
+
+mem_all <- rbind(h_all,m_all)
+theme_set(theme_bw())
+# ggplot(mem_all, aes(x=index, y=x/1e6, col=model))+geom_line()+ylab("RAM utilization(in GB)")+
+#   xlab("Time(one observation every 20 second)")+ggtitle("RAM consumption with 1.3M cell and 1k genes")
+
+```
+```{r}
+memory_pattern <- data.frame(rbind(cbind(max(h_10$x),"hdf5","10"),
+                        cbind(max(m_10$x),"matrix","10"),
+                        cbind(max(h_100$x),"hdf5","100"),
+                        cbind(max(m_100$x),"matrix","100"),
+                        cbind(max(h_200$x),"hdf5","200"),
+                        cbind(max(m_200$x),"matrix","200"),
+                        cbind(max(h_300$x),"hdf5","300"),
+                        cbind(max(m_300$x),"matrix","300"),
+                        cbind(max(h_600$x),"hdf5","600"),
+                        cbind(max(m_600$x),"matrix","600"),
+                        cbind(max(h_all$x),"hdf5","1300"),
+                        cbind(max(m_all$x),"matrix","1300")))
+
+
+memory_pattern$X1 <- as.numeric(memory_pattern$X1)
+memory_pattern$model <- as.factor(memory_pattern$X2)
+memory_pattern$X3 <- as.factor(as.numeric(memory_pattern$X3))
+
+ggplot(memory_pattern, aes(x = as.numeric(as.character(X3)), y =X1/1e6, col=model))+geom_point()+geom_line()+ylab("Memory(in GB)")+xlab("number of cells (thousands)")+ggtitle("RAM consumption pattern")
+
+```
+
+
+
+## hdf5 implementation using 40 cores
+
+
+
+
+<!-- ```{r} -->
+<!-- load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf5_40core1_1e+05.Rdata") -->
+<!-- load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf5_40core1_1e+05.Rdata") -->
+<!-- load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf5_40core1_1e+05.Rdata") -->
+
+
+<!-- stat_100 <- rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3) -->
+<!-- ``` -->
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf5_40core1_10000.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf5_40core2_10000.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf5_40core3_10000.Rdata")
+
+
+stat_10 <- data.frame(rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3))
+```
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf5_40core1_1e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf5_40core2_1e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf5_40core3_1e+05.Rdata")
+
+
+stat_100 <- data.frame(rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3))
+```
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf5_40core1_2e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf5_40core2_2e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf5_40core3_2e+05.Rdata")
+
+
+stat_200 <- data.frame(rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3))
+```
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf5_40core1_3e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf5_40core2_3e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf5_40core3_3e+05.Rdata")
+
+
+stat_300 <- data.frame(rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3))
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf5_40core1_6e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf5_40core2_6e+05.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf5_40core3_6e+05.Rdata")
+
+
+stat_600 <- data.frame(rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3))
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf5_40core1_1306127.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf5_40core2_1306127.Rdata")
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_hdf5_40core3_1306127.Rdata")
+
+
+stat_all <- data.frame(rbind(stat_gene_parmini1,stat_gene_parmini2,stat_gene_parmini3))
+```
+
+```{r}
+stat_10$n_cell <- "10000"
+stat_100$n_cell <- "100000"
+stat_200$n_cell <- "200000"
+stat_300$n_cell <- "300000"
+stat_600$n_cell <- "600000"
+stat_all$n_cell <- "1300000"
+stat_de40 <- rbind(stat_10, stat_100, stat_200,stat_300, stat_600, stat_all)
+stat_de40$n_cell <- as.numeric(stat_de40$n_cell)
+
+```
+
+```{r}
+stat_de40 <- aggregate(V1~n_cell, stat_de40, mean)
+```
+
+```{r}
+
+ggplot(stat_de40, aes(y=V1/60,x=n_cell,))+geom_point()+geom_line()+ylab("Time(in minute)")+xlab("Number of cell")+ggtitle("Time consumption of NewWave", subtitle = "Using TENxBrainData")+ labs(fill = "Methods")
+```
+
+
+### Memory measures
+
+```{r}
+mem_h_10<- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_hdf5_10_40.txt", header=TRUE, quote="\"")
+h_10 <- mem_h_10[,c(1,9)]
+h_10$RSS <- gsub("G", "000000", h_10$RSS)
+h_10$RSS <- gsub("M","000", h_10$RSS)
+h_10$RSS <- gsub("K","", h_10$RSS)
+# h_100$Time[1:15756]<-paste0("0",":",h_100$Time[1:15756])
+# h_100$Time[15757:nrow(h_100)]<-paste0("1",":",h_100$Time[15757:nrow(h_100)])
+h_10$RSS <- as.numeric(h_10$RSS)
+h_10$index <- as.numeric(as.factor(h_10$Time))
+h_10 = h_10 %>% group_by(index) %>% summarise(x = sum(RSS))
+h_10$model <-"hdf5"
+```
+```{r}
+mem_h_100<- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_hdf5_100_40.txt", header=TRUE, quote="\"")
+h_100 <- mem_h_100[,c(1,9)]
+h_100$RSS <- gsub("G", "000000", h_100$RSS)
+h_100$RSS <- gsub("M","000", h_100$RSS)
+h_100$RSS <- gsub("K","", h_100$RSS)
+# h_100$Time[1:15756]<-paste0("0",":",h_100$Time[1:15756])
+# h_100$Time[15757:nrow(h_100)]<-paste0("1",":",h_100$Time[15757:nrow(h_100)])
+h_100$RSS <- as.numeric(h_100$RSS)
+h_100$index <- as.numeric(as.factor(h_100$Time))
+h_100 = h_100 %>% group_by(index) %>% summarise(x = sum(RSS))
+h_100$model <-"hdf5"
+```
+```{r}
+mem_h_200<- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_hdf5_200_40.txt", header=TRUE, quote="\"")
+h_200 <- mem_h_200[,c(1,9)]
+h_200$RSS <- gsub("G", "000000", h_200$RSS)
+h_200$RSS <- gsub("M","000", h_200$RSS)
+h_200$RSS <- gsub("K","", h_200$RSS)
+# h_100$Time[1:15756]<-paste0("0",":",h_100$Time[1:15756])
+# h_100$Time[15757:nrow(h_100)]<-paste0("1",":",h_100$Time[15757:nrow(h_100)])
+h_200$RSS <- as.numeric(h_200$RSS)
+h_200$index <- as.numeric(as.factor(h_200$Time))
+h_200 = h_200 %>% group_by(index) %>% summarise(x = sum(RSS))
+h_200$model <-"hdf5"
+```
+```{r}
+mem_h_300<- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_hdf5_300_40.txt", header=TRUE, quote="\"")
+h_300 <- mem_h_300[,c(1,9)]
+h_300$RSS <- gsub("G", "000000", h_300$RSS)
+h_300$RSS <- gsub("M","000", h_300$RSS)
+h_300$RSS <- gsub("K","", h_300$RSS)
+# h_200$Time[1:15756]<-paste0("0",":",h_200$Time[1:15756])
+# h_200$Time[15757:nrow(h_200)]<-paste0("1",":",h_200$Time[15757:nrow(h_200)])
+h_300$RSS <- as.numeric(h_300$RSS)
+h_300$index <- as.numeric(as.factor(h_300$Time))
+h_300 = h_300 %>% group_by(index) %>% summarise(x = sum(RSS))
+h_300$model <-"hdf5"
+```
+```{r}
+mem_h_600<- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_hdf5_600_40.txt", header=TRUE, quote="\"")
+h_600 <- mem_h_600[,c(1,9)]
+h_600$RSS <- gsub("G", "000000", h_600$RSS)
+h_600$RSS <- gsub("M","000", h_600$RSS)
+h_600$RSS <- gsub("K","", h_600$RSS)
+# h_600$Time[1:15756]<-paste0("0",":",h_600$Time[1:15756])
+# h_600$Time[15757:nrow(h_600)]<-paste0("1",":",h_600$Time[15757:nrow(h_600)])
+h_600$RSS <- as.numeric(h_600$RSS)
+h_600$index <- as.numeric(as.factor(h_600$Time))
+h_600 = h_600 %>% group_by(index) %>% summarise(x = sum(RSS))
+h_600$model <-"hdf5"
+```
+
+
+```{r}
+mem_h_all<- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_hdf5_all_40.txt", header=TRUE, quote="\"")
+h_all <- mem_h_all[,c(1,9)]
+h_all$RSS <- gsub("G", "000000", h_all$RSS)
+h_all$RSS <- gsub("M","000", h_all$RSS)
+h_all$RSS <- gsub("K","", h_all$RSS)
+h_all$Time[1:6523]<-paste0("0",":",h_all$Time[1:6523])
+h_all$Time[6524:nrow(h_all)]<-paste0("1",":",h_all$Time[6524:nrow(h_all)])
+h_all$RSS <- as.numeric(h_all$RSS)
+h_all$index <- as.numeric(as.factor(h_all$Time))
+h_all = h_all %>% group_by(index) %>% summarise(x = sum(RSS))
+h_all$model <-"hdf5"
+```
+
+
+```{r}
+memory_pattern40 <- data.frame(rbind(cbind(max(h_10$x),"hdf5_40cores","10"),
+  cbind(max(h_100$x),"hdf5_40cores","100"),
+                                     cbind(max(h_200$x),"hdf5_40cores","200"),
+                      cbind(max(h_300$x),"hdf5_40cores","300"),
+                       cbind(max(h_600$x),"hdf5_40cores","600"),
+                       cbind(max(h_all$x),"hdf5_40cores","1300")))
+
+
+memory_pattern40$X1 <- as.numeric(memory_pattern40$X1)
+memory_pattern40$model <- as.factor(memory_pattern40$X2)
+memory_pattern40$X3 <- as.factor(as.numeric(memory_pattern40$X3))
+
+ggplot(memory_pattern40, aes(x = as.numeric(as.character(X3)), y =X1/1e6, col=model))+geom_point()+geom_line()+ylab("Memory(in GB)")+xlab("number of cells (thousands)")+ggtitle("RAM consumption pattern")
+
+```
+
+## PCA 10 cores
+
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_pca_10000.Rdata")
+
+stat_10 <- data.frame(stat_pca)
+```
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_pca_1e+05.Rdata")
+
+
+stat_100 <- data.frame(stat_pca)
+```
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_pca_2e+05.Rdata")
+
+stat_200 <- data.frame(stat_pca)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_pca_3e+05.Rdata")
+
+
+stat_300 <- data.frame(stat_pca)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_pca_6e+05.Rdata")
+
+
+stat_600 <- data.frame(stat_pca)
+```
+
+```{r}
+load("/mnt/federico/BICCN_data/hdf5_example/res/performance_pca_1306127.Rdata")
+
+
+stat_all <- data.frame(stat_pca)
+```
+
+```{r}
+stat_10$n_cell <- "10000"
+stat_100$n_cell <- "100000"
+stat_200$n_cell <- "200000"
+stat_300$n_cell <- "300000"
+stat_600$n_cell <- "600000"
+stat_all$n_cell <- "1300000"
+stat_pca <- rbind(stat_10, stat_100, stat_200,stat_300, stat_600, stat_all)
+# 
+stat_pca$n_cell <- as.numeric(stat_pca$n_cell)
+stat_pca <- data.frame(n_cell = stat_pca$n_cell, V1 = stat_pca$stat_pca)
+```
+
+
+```{r}
+
+ggplot(stat_pca, aes(y=V1/60,x=n_cell,))+geom_point()+geom_line()+ylab("Time(in minute)")+xlab("Number of cell")+ggtitle("Time consumption of NewWave", subtitle = "Using TENxBrainData")+ labs(fill = "Methods")
+```
+
+### RAM pca 10
+
+```{r}
+mem_h_10<- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_pca_10k.txt", header=TRUE, quote="\"")
+h_10 <- mem_h_10[,c(1,9)]
+h_10$RSS <- gsub("G", "000000", h_10$RSS)
+h_10$RSS <- gsub("M","000", h_10$RSS)
+h_10$RSS <- gsub("K","", h_10$RSS)
+# h_100$Time[1:15756]<-paste0("0",":",h_100$Time[1:15756])
+# h_100$Time[15757:nrow(h_100)]<-paste0("1",":",h_100$Time[15757:nrow(h_100)])
+h_10$RSS <- as.numeric(h_10$RSS)
+h_10$index <- as.numeric(as.factor(h_10$Time))
+h_10 = h_10 %>% group_by(index) %>% summarise(x = sum(RSS))
+h_10$model <-"pca"
+```
+```{r}
+mem_h_100<- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_pca_100k.txt", header=TRUE, quote="\"")
+h_100 <- mem_h_100[,c(1,9)]
+h_100$RSS <- gsub("G", "000000", h_100$RSS)
+h_100$RSS <- gsub("M","000", h_100$RSS)
+h_100$RSS <- gsub("K","", h_100$RSS)
+# h_100$Time[1:15756]<-paste0("0",":",h_100$Time[1:15756])
+# h_100$Time[15757:nrow(h_100)]<-paste0("1",":",h_100$Time[15757:nrow(h_100)])
+h_100$RSS <- as.numeric(h_100$RSS)
+h_100$index <- as.numeric(as.factor(h_100$Time))
+h_100 = h_100 %>% group_by(index) %>% summarise(x = sum(RSS))
+h_100$model <-"pca"
+```
+
+```{r}
+mem_h_200<- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_pca_200k.txt", header=TRUE, quote="\"")
+h_200 <- mem_h_200[,c(1,9)]
+h_200$RSS <- gsub("G", "000000", h_200$RSS)
+h_200$RSS <- gsub("M","000", h_200$RSS)
+h_200$RSS <- gsub("K","", h_200$RSS)
+# h_100$Time[1:15756]<-paste0("0",":",h_100$Time[1:15756])
+# h_100$Time[15757:nrow(h_100)]<-paste0("1",":",h_100$Time[15757:nrow(h_100)])
+h_200$RSS <- as.numeric(h_200$RSS)
+h_200$index <- as.numeric(as.factor(h_200$Time))
+h_200 = h_200 %>% group_by(index) %>% summarise(x = sum(RSS))
+h_200$model <-"hdf5"
+```
+```{r}
+mem_h_300<- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_pca_300k.txt", header=TRUE, quote="\"")
+h_300 <- mem_h_300[,c(1,9)]
+h_300$RSS <- gsub("G", "000000", h_300$RSS)
+h_300$RSS <- gsub("M","000", h_300$RSS)
+h_300$RSS <- gsub("K","", h_300$RSS)
+# h_200$Time[1:15756]<-paste0("0",":",h_200$Time[1:15756])
+# h_200$Time[15757:nrow(h_200)]<-paste0("1",":",h_200$Time[15757:nrow(h_200)])
+h_300$RSS <- as.numeric(h_300$RSS)
+h_300$index <- as.numeric(as.factor(h_300$Time))
+h_300 = h_300 %>% group_by(index) %>% summarise(x = sum(RSS))
+h_300$model <-"hdf5"
+```
+```{r}
+mem_h_600<- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_pca_600.txt", header=TRUE, quote="\"")
+h_600 <- mem_h_600[,c(1,9)]
+h_600$RSS <- gsub("G", "000000", h_600$RSS)
+h_600$RSS <- gsub("M","000", h_600$RSS)
+h_600$RSS <- gsub("K","", h_600$RSS)
+# h_600$Time[1:15756]<-paste0("0",":",h_600$Time[1:15756])
+# h_600$Time[15757:nrow(h_600)]<-paste0("1",":",h_600$Time[15757:nrow(h_600)])
+h_600$RSS <- as.numeric(h_600$RSS)
+h_600$index <- as.numeric(as.factor(h_600$Time))
+h_600 = h_600 %>% group_by(index) %>% summarise(x = sum(RSS))
+h_600$model <-"hdf5"
+```
+
+
+```{r}
+mem_h_all<- read.table("/mnt/federico/BICCN_data/hdf5_example/mem_pca_all.txt", header=TRUE, quote="\"")
+h_all <- mem_h_all[,c(1,9)]
+h_all$RSS <- gsub("G", "000000", h_all$RSS)
+h_all$RSS <- gsub("M","000", h_all$RSS)
+h_all$RSS <- gsub("K","", h_all$RSS)
+# h_all$Time[1:6523]<-paste0("0",":",h_all$Time[1:6523])
+# h_all$Time[6524:nrow(h_all)]<-paste0("1",":",h_all$Time[6524:nrow(h_all)])
+h_all$RSS <- as.numeric(h_all$RSS)
+h_all$index <- as.numeric(as.factor(h_all$Time))
+h_all = h_all %>% group_by(index) %>% summarise(x = sum(RSS))
+h_all$model <-"hdf5"
+```
+
+
+
+
+```{r}
+memory_pattern_pca <- data.frame(rbind(cbind(max(h_10$x),"pca","10"),
+  cbind(max(h_100$x),"pca","100"),cbind(max(h_200$x),"pca","200"),
+  cbind(max(h_300$x),"pca","300"),cbind(max(h_600$x),"pca","600"),
+  cbind(max(h_all$x),"pca","1300")))
+            
+
+
+memory_pattern_pca$X1 <- as.numeric(memory_pattern_pca$X1)
+memory_pattern_pca$model <- as.factor(memory_pattern_pca$X2)
+memory_pattern_pca$X3 <- as.factor(as.numeric(memory_pattern_pca$X3))
+
+ggplot(memory_pattern_pca, aes(x = as.numeric(as.character(X3)), y =X1/1e6, col=model))+geom_point()+geom_line()+ylab("Memory(in GB)")+xlab("number of cells (thousands)")+ggtitle("RAM consumption pattern")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+stat_de40$Methods <-"hdf5_40cores"
+stat_pca$Methods <-"PCA"
+stat = rbind(stat_de,stat_de40,stat_pca)
+
+stat$Methods[stat$Methods=="matrix"]="matrix_10cores"
+stat$Methods[stat$Methods=="hdf5"]="hdf5_10cores"
+stat$Methods[stat$Methods=="PCA"]="PCA_10cores"
+time <- ggplot(stat, aes(y=V1/60,x=n_cell/1000,group=Methods, col=Methods))+geom_point()+geom_line()+ylab("Time(in minute)")+xlab("Number of cell(in thousands)")+ggtitle("Time consumption of NewWave", subtitle = "Using TENxBrainData")+ labs(fill = "Methods")+scale_color_manual(values=c(2,3,4,5))
+ggsave("/home/federico/Scrivania/time_newWave.png", time)
+time
+```
+```{r}
+patt <- rbind(memory_pattern,memory_pattern40, memory_pattern_pca)
+memory <- ggplot(patt, aes(x = as.numeric(as.character(X3)), y =X1/1e6, col=model))+geom_point()+geom_line()+ylab("Memory(in GB)")+xlab("Number of cells (thousands)")+ggtitle("RAM consumption of NewWave", subtitle = "Using TENxBrainData")+scale_color_manual(values=c(2,4,3,5))
+ggsave("/home/federico/Scrivania/memory_newWave.png", memory)
+memory
+```
+
+
+<!-- ```{r} -->
+
+<!-- patt$X3 <- as.numeric(as.character(patt$X3))*1000 -->
+
+<!-- memory <- ggplot(patt, aes(y =X1/1e6, x = X3/1000,  col=model))+geom_point()+geom_line()+ylab("Memory(in GB)")+theme(legend.position = "none",axis.text.x=element_blank(),axis.title.x=element_blank() -->
+<!-- )+ scale_color_manual(values=c("#33FFFF", "#0099FF", "#0000FF","#9933FF")) -->
+
+<!-- time <- ggplot(stat, aes(y=V1/60,x=n_cell/1000,group=Methods, col=Methods))+geom_point()+geom_line()+ylab("Time(in minute)")+xlab("Number of cell(in thousands)")+ labs(fill = "Methods")+theme(legend.position = "right", legend.key.size = unit(1.1, "cm"))+ scale_color_manual(values=c("#33FFFF", "#0000FF", "#0099FF","#9933FF")) -->
+<!-- leg1 <- get_legend(time) -->
+
+<!-- time <- ggplot(stat, aes(y=V1/60,x=n_cell/1000,group=Methods, col=Methods))+geom_point()+geom_line()+ylab("Time(in minute)")+xlab("Number of cell(in thousands)")+ labs(fill = "Methods")+ scale_color_manual(values=c("#33FFFF", "#0000FF", "#0099FF","#9933FF")) -->
+<!-- ``` -->
+
+### table graph 4
+
+```{r}
+
+patt$X3 <- as.numeric(as.character(patt$X3))*1000
+
+memory <- ggplot(patt, aes(y =X1/1e6, x = X3/1000,  col=model))+geom_point()+geom_line()+ylab("Memory(in GB)")+theme(legend.position = "none",axis.text.x=element_blank(),axis.title.x=element_blank()
+)+ scale_color_manual(values=c("#000000", "#ffcc00", "#ff6633","#99ff00"))
+
+time <- ggplot(stat, aes(y=V1/60,x=n_cell/1000,group=Methods, col=Methods))+geom_point()+geom_line()+ylab("Time(in minute)")+xlab("Number of cell(in thousands)")+ labs(fill = "Methods")+theme(legend.position = "right", legend.key.size = unit(1.1, "cm"))+ scale_color_manual(values=c("#000000", "#ffcc00", "#ff6633","#99ff00"))
+leg1 <- get_legend(time)
+
+time <- ggplot(stat, aes(y=V1/60,x=n_cell/1000,group=Methods, col=Methods))+geom_point()+geom_line()+ylab("Time(in minute)")+xlab("Number of cell(in thousands)")+ labs(fill = "Methods")+ scale_color_manual(values=c("#000000", "#ffcc00", "#ff6633","#99ff00"))
+```
+```{r}
+a <-ggarrange(memory,time, 
+  common.legend = TRUE, legend = "none", nrow=2, heights = c(1,1.2),font.label= list(size=8))
+a
+```
+
+```{r}
+# a <- grid.arrange(memory,time, ncol=1, heights =c(1.5,2),top = textGrob("RAM and time consumption",gp=gpar(fontsize=20,font=3)))
+# a
+```
+
+```{r}
+patt$model <- as.character(patt$model)
+patt <- patt[order(patt$X3,patt$model),]
+stat$Methods <- as.character(stat$Methods)
+stat <- stat[order(stat$n_cell,stat$Methods),]
+table4_for_supp <- data.frame(Model = patt$model, '# of cells'= patt$X3, RAM = patt$X1, time = stat$V1)
+colnames(table4_for_supp)[2] <-"# of cells"
+table4_for_supp$RAM <- table4_for_supp$RAM/1000000
+table4_for_supp$time <- table4_for_supp$time/60
+table4_for_supp$RAM <- round(table4_for_supp$RAM,0)
+table4_for_supp$Model[table4_for_supp$Model=="matrix"]="matrix_10cores"
+table4_for_supp$Model[table4_for_supp$Model=="hdf5"]="hdf5_10cores"
+table4_for_supp$Model[table4_for_supp$Model=="pca"]="PCA_10cores"
+options("scipen"=100, "digits"=4)
+
+```
+
+
+
+```{r}
+data_mem <- data_mem %>% group_by(model) %>% summarise(x = max(x))
+data_mem$V3 <- "NewWave"
+data_mem_zinb <- data_mem_zinb %>% group_by(model) %>% summarise(x = max(x))
+data_mem_zinb$V3 <- "ZINBWaVE"
+```
+```{r}
+
+var_cores$mem <- data_mem$x
+
+var_cores$V1 <- var_cores$V1/60
+```
+
+
+```{r}
+var_cores
+
+```
+
+
+
+```{r}
+var_cores =  data.frame(time = var_cores$V1, cores= var_cores$Group.1, memory=var_cores$mem )
+all_z$cores <- as.character(all_z$cores)
+all_z$time <- all_z$time/60
+ var_cores_all <- data.frame(rbind(var_cores,all_z),model = c("NewWave","NewWave","NewWave","NewWave"," ZINB-WaVE"," ZINB-WaVE"," ZINB-WaVE"," ZINB-WaVE"))
+```
+
+### Table cores
+
+
+```{r}
+time_comp <- ggplot(data = var_cores_all, aes(y=time,x=cores,group=model, col=model))+
+ geom_point()+
+ geom_line()+ylab("Time(in minute)")+
+  xlab("Number of cores")+labs(col='Model')+ scale_color_manual(values=c("#ff0033","#00ffff"))
+time_comp
+
+mem_comp <- ggplot(data = var_cores_all, aes(y=memory/1e6,x=cores,group=model, col=model))+
+ geom_point()+
+ geom_line()+ylab("Memory(in GB)")+
+  xlab("Number of cores")+labs(col='Model')+ scale_color_manual(values=c("#ff0033","#00ffff"))
+mem_comp
+```
+
+```{r}
+s <-ggarrange(time_comp,mem_comp, heights =c(1,1.2),
+  common.legend = TRUE,  ncol=2, font.label= list(size=8))
+ # grid.arrange(comparison,ari, ncol=1, heights =c(1,2),top = textGrob("Time consumption and ARI performance",gp=gpar(fontsize=20,font=3)))
+s
+```
+
+
+
+
+```{r}
+# parallel <-ggplot(data = var_cores_all, aes(x=cores))+
+#  geom_point(aes(y=time, col="Time"))+
+#  geom_line(aes(y=time, group=model,  col="Time"))+
+#  geom_point(aes(y=memory/ 2703658, col="Memory"))+
+#  geom_line(aes(y=memory/ 2703658, group=model, col="Memory"))+
+#  scale_y_continuous(name = "Time(in minutes)",  sec.axis = sec_axis(~.* 2.703658, name="Memory(in GB)"))+
+#    facet_grid(model ~ ., scales = "free_y")+
+#   labs(col='Measure',x = "Number of cores")+
+#   theme(  legend.title = element_text(size = 8),
+#   legend.text = element_text( size = 8)
+#   )
+# # ggsave("/home/federico/Scrivania/parallel_newWave.png", parallel)
+# parallel
+```
+
+
+
+
+```{r}
+table3_for_supp <- data.frame(model=var_cores_all$model, var_cores_all[,-4])
+
+table3_for_supp$time <- round(table3_for_supp$time,2)
+table3_for_supp$memory <- table3_for_supp$memory/1000000
+table3_for_supp$memory <- round(table3_for_supp$memory,0)
+table3_for_supp = table3_for_supp[,-5]
+colnames(table3_for_supp) <- c("Model","Time in minutes","# of cores", 
+                               "Memory in GB")
+
+options("scipen"=100, "digits"=4)
+
+```
+
+
+### Table graph 2
+
+
+```{r}
+time_pattern$model <- as.character(time_pattern$model)
+time_pattern$model[which(time_pattern$model=="ZinbWave")] <- "ZINB-WaVE"
+time_pattern$model[which(time_pattern$model=="ZinbWave\n (Negative Binomial)")] <- "ZINB-WaVE\n (Negative Binomial)"
+time_pattern$model <- as.factor(time_pattern$model)
+```
+
+```{r}
+library(RColorBrewer)
+comparison <- ggplot(time_pattern, aes(x = as.numeric(as.character(cells)), y =time/60, group = model, col=model))+geom_point()+geom_line()+ylab("Time(in minute)")+theme(legend.position = "none",axis.text.x=element_blank(),axis.title.x=element_blank())+ scale_color_manual(values=c("#336600", "#0000ff","#00ffff","#ff0033","#9900ff"))
+comparison
+
+ari <- ggplot(time_pattern, aes(x = as.numeric(as.character(cells)), y =ARI, group = model, col=model))+geom_point()+geom_line()+ylab("ARI")+xlab("number of cells (thousands)")+theme(legend.position = "right", legend.key.size = unit(1.1, "cm"))+ scale_color_manual(values=c("#336600", "#0000ff","#00ffff","#ff0033","#9900ff"))
+# +guides(col=guide_legend(nrow=3))
+ari
+
+leg <- get_legend(ari)
+ari <- ggplot(time_pattern, aes(x = as.numeric(as.character(cells)), y =ARI, group = model, col=model))+geom_point()+geom_line()+ylab("ARI")+xlab("number of cells (thousands)")+theme(legend.position = "none")+ scale_color_manual(values=c("#336600", "#0000ff","#00ffff","#ff0033","#9900ff"))
+
+```
+
+```{r}
+table2_for_supp <- time_pattern
+table2_for_supp$time <- round(table2_for_supp$time,2)
+table2_for_supp$ARI<- round(table2_for_supp$ARI,4)
+table2_for_supp = table2_for_supp[,-5]
+colnames(table2_for_supp) <- c("Model","# of cells","Time in minutes","AIC" ,"ARI")
+
+options("scipen"=100, "digits"=4)
+table2_for_supp$'# of cells' <- as.numeric(as.character(table2_for_supp$'# of cells'))*1000
+table2_for_supp <- table2_for_supp[order(table2_for_supp$'# of cells'),]
+```
+
+
+```{r}
+b <-ggarrange(comparison,ari, heights =c(1,1.2),
+  common.legend = TRUE, legend = "none", nrow=2, font.label= list(size=8))
+ # grid.arrange(comparison,ari, ncol=1, heights =c(1,2),top = textGrob("Time consumption and ARI performance",gp=gpar(fontsize=20,font=3)))
+b
+```
+```{r}
+library(jpeg)
+img = readJPEG("/home/federico/Scrivania/NewWave.jpg")
+
+```
+
+```{r}
+newimg <- ggplot2::ggplot() + ggplot2::annotation_custom(grid::rasterGrob(img,
+                                                width=ggplot2::unit(1,"npc"),
+                                                height=ggplot2::unit(1,"npc"),),
+                               -Inf, Inf, -Inf, Inf)+theme(panel.border = element_blank())
+```
+
+```{r}
+plot(newimg)
+```
+
+```{r}
+fin <- ggarrange(newimg,b, leg,s,a,leg1,  labels = c("A", "B","", "C","D"),   
+              ncol = 3, # Second row with 2 plots in 2 different columns
+             nrow = 2, widths = c(2.5,2.5,1), font.label= list(size=8))   
+fin
+```
+```{r}
+ggsave("/home/federico/Scrivania/final.pdf", fin, height = 7,width = 13)
+```
+
+```{r}
+plot(fin)
+```
+
