@@ -1,9 +1,3 @@
-
-cache_dir <- file.path(tempdir(), "ExperimentHub")
-dir.create(cache_dir)
-ExperimentHub::setExperimentHubOption("CACHE", cache_dir)
-system(paste("cp -L /mnt/federico/sassari/*", cache_dir))
-
 library(NewWave)
 library(SingleCellExperiment)
 library(TENxBrainData)
@@ -15,7 +9,6 @@ load("/mnt/federico/BICCN_data/hdf5_example/10x_hvg.Rdata")
 
 set.seed(1234)
 dati <- tenx[hvg,sample(ncol(counts(tenx)),n_cell)]
-
 
 res_newWave_genewise_allminibatch <- newFit(dati, K=10,
                                           commondispersion = F,

@@ -12,15 +12,19 @@ library(scran)
 library(BiocParallel)
 library(BiocSingular)
 library(Seurat)
+library(R.utils)
+library(dplyr)
 
 getPalette = colorRampPalette(brewer.pal(8, "Set2"))
-load("/home/federico/Scrivania/mRNAmix_qc.RData")
+# If it doesen't work you can download using URL
+download.file("https://github.com/LuyiTian/sc_mixology/blob/master/data/mRNAmix_qc.RData", destfile = "/path/to/file/mRNAmix_qc.RData")
+
+load("/path/to/file/mRNAmix_qc.RData")
 sce2_qc$batch = "CEL-seq2"
 sce8_qc$batch = "Sort-seq"
 
 sce2_qc1 <- logNormCounts(sce2_qc)
 sce8_qc1 <- logNormCounts(sce8_qc)
-
 
 hvg1<- getTopHVGs(sce2_qc1, n=4000)
 hvg2<- getTopHVGs(sce8_qc1, n=4000)
@@ -39,8 +43,6 @@ sce_merge = SingleCellExperiment(assays=list(counts=cbind(counts(sce2_qc),
 sce_merge$Batch <- c(sce2_qc$batch,sce8_qc$batch)
 sce_merge$cell_type = c(sce2_qc$label,sce8_qc$label)
 
-save(sce_merge,file = "/mnt/federico/BICCN_data/datiMix.Rdata")
-
 sce_merge$Batch<-as.factor(sce_merge$Batch)
 sce_merge$cell_type<-as.factor(sce_merge$cell_type)
 etichette<-as.factor(sce_merge$cell_type)
@@ -52,7 +54,6 @@ finNew <- newFit(sce_merge, K=10, X = "~Batch", commondispersion = F,
 data.umap = umap(finNew@W)
 
 new_res = data.frame(data.umap$layout,etichette,batch=sce_merge$Batch)
-# save(new_res, file="/mnt/federico/BICCN_data/lineePerPlot.RData")
 
 sce_merge <- logNormCounts(sce_merge)
 finPCA<- runPCA(sce_merge,ncomponents=10,BSPARAM = RandomParam(),BPPARAM=MulticoreParam(10))
@@ -60,7 +61,6 @@ finPCA<- runPCA(sce_merge,ncomponents=10,BSPARAM = RandomParam(),BPPARAM=Multico
 data.umap = umap(reducedDim(finPCA, "PCA"))
 
 pca_res = data.frame(data.umap$layout,etichette,batch=sce_merge$Batch)
-# save(pca_res, file="/mnt/federico/BICCN_data/lineePerPlotPCA.RData")
 
 
 seurat = CreateSeuratObject(counts = counts(sce_merge))
@@ -85,11 +85,6 @@ seurat2 <- FindClusters(seurat2, resolution = 1)
 ari_NewWave <- adjustedRandIndex(as.numeric(etichette),Idents(seurat))
 ari_PCA <- adjustedRandIndex(as.numeric(etichette),Idents(seurat2))
 
-
-
-
-
-
 ari_NewWave <- mean(sapply(1,function(y)adjustedRandIndex(as.numeric(etichette),kmeans(finNew@W, 7)$cluster)))
 ari_PCA <- mean(sapply(1,function(y)adjustedRandIndex(as.numeric(etichette),kmeans(pca, 7)$cluster)))
 
@@ -100,22 +95,13 @@ pca_res$Proportion = pca_res$etichette
 pNW_b = ggplot(new_res,aes(x=X1,y=X2,col=Batch))+geom_point()+theme(legend.title = element_text("Batch"))
 leg <- get_legend(pNW_b)
 pNW_b = ggplot(new_res,aes(x=X1,y=X2,col=Batch))+geom_point()+theme(legend.position = "none",legend.key.size = unit(1.1, "cm"),axis.title = element_blank())
-ggsave(filename="Scrivania/umapNW.png",ggplot(new_res,aes(x=X1,y=X2,col=batch))+geom_point() + scale_fill_discrete(name = "Dose"))
 pPCA_b = ggplot(pca_res,aes(x=X1,y=X2,col=Batch))+geom_point()+theme(legend.position = "none",axis.title = element_blank())
-ggsave(filename="Scrivania/umapPCA.png",ggplot(pca_res,aes(x=X1,y=X2,col=batch))+geom_point() + scale_fill_discrete(name = "Dose"))
-
-
 pNW_e = ggplot(new_res,aes(x=X1,y=X2,col=Proportion))+geom_point()+theme(legend.title = element_text("Cell type"))+scale_color_manual(values=getPalette(20))
 leg1 <- get_legend(pNW_e)
 pNW_e = ggplot(new_res,aes(x=X1,y=X2,col=Proportion))+geom_point()+theme(legend.position = "none",legend.key.size = unit(1.1, "cm"),axis.title = element_blank())+scale_color_manual(values=getPalette(20))
-ggsave(filename="Scrivania/umapNWeti.png",ggplot(new_res,aes(x=X1,y=X2,col=etichette))+geom_point() + scale_fill_discrete(name = "Dose"))
 pPCA_e = ggplot(pca_res,aes(x=X1,y=X2,col=Proportion))+geom_point()+theme(legend.position = "none",axis.title = element_blank())+scale_color_manual(values=getPalette(20))
-ggsave(filename="Scrivania/umapPCAeti.png",ggplot(pca_res,aes(x=X1,y=X2,col=etichette))+geom_point() + scale_fill_discrete(name = "Dose"))
 
-
-fin <- ggarrange(pNW_b,pPCA_b, leg,pNW_e,pPCA_e,leg1,  labels = c("A", "B","", "C","D"),   
+SuppPlot2 <- ggarrange(pNW_b,pPCA_b, leg,pNW_e,pPCA_e,leg1,  labels = c("A", "B","", "C","D"),   
                  ncol = 3, # Second row with 2 plots in 2 different columns
                  nrow = 2, widths = c(2.5,2.5,1), font.label= list(size=8)) 
-ggsave(filename="Scrivania/allRevisionMixture.png",fin,width = 9,  height = 10)
-
-
+SuppPlot2
