@@ -5,7 +5,7 @@ library(TENxBrainData)
 
 tenx <- TENxBrainData()
 n_cell <- 10000
-load("/mnt/federico/BICCN_data/hdf5_example/10x_hvg.Rdata")
+load(here("10x_hvg.Rdata"))
 
 set.seed(1234)
 dati <- tenx[hvg,sample(ncol(counts(tenx)),n_cell)]

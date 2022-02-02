@@ -4,9 +4,9 @@ library(mclust)
 library(BiocParallel)
 library(microbenchmark)
 library(zinbwave)
+library(here)
 
-
-load("/path/to/file/BICCN_hvg.Rdata")
+load(here("BICCN_hvg.Rdata"))
 
 # Variazione dei cores
 
@@ -74,7 +74,7 @@ time_comp <- ggplot(data = time, aes(y=Time,x=cores,group=model, col=model))+
 time_comp
 
 
-mem_h_10<- read.table("/path/to/file/NewWave_mem_10.txt", header=TRUE, quote="\"")
+mem_h_10<- read.table("NewWave_mem_10.txt", header=TRUE, quote="\"")
 h_10 <- mem_h_10[,c(1,9)]
 h_10$RSS <- gsub("G", "000000", h_10$RSS)
 h_10$RSS <- gsub("M","000", h_10$RSS)
@@ -85,7 +85,7 @@ h_10 = h_10 %>% group_by(index) %>% summarise(x = sum(RSS))
 h_10$model <-"NewWave"
 h_10$cores <-10
 
-mem_h_100<- read.table("/path/to/file/NewWave_mem_20.txt", header=TRUE, quote="\"")
+mem_h_100<- read.table("NewWave_mem_20.txt", header=TRUE, quote="\"")
 h_100 <- mem_h_100[,c(1,9)]
 h_100$RSS <- gsub("G", "000000", h_100$RSS)
 h_100$RSS <- gsub("M","000", h_100$RSS)
@@ -96,7 +96,7 @@ h_100 = h_100 %>% group_by(index) %>% summarise(x = sum(RSS))
 h_100$model <-"NewWave"
 h_100$cores <-20
 
-mem_h_200<- read.table("/path/to/file/NewWave_mem_30.txt", header=TRUE, quote="\"")
+mem_h_200<- read.table("NewWave_mem_30.txt", header=TRUE, quote="\"")
 h_200 <- mem_h_200[,c(1,9)]
 h_200$RSS <- gsub("G", "000000", h_200$RSS)
 h_200$RSS <- gsub("M","000", h_200$RSS)
@@ -107,7 +107,7 @@ h_200 = h_200 %>% group_by(index) %>% summarise(x = sum(RSS))
 h_200$model <-"NewWave"
 h_200$cores <-30
 
-mem_h_300<- read.table("/path/to/file/NewWave_mem_10.txt", header=TRUE, quote="\"")
+mem_h_300<- read.table("NewWave_mem_10.txt", header=TRUE, quote="\"")
 h_300 <- mem_h_300[,c(1,9)]
 h_300$RSS <- gsub("G", "000000", h_300$RSS)
 h_300$RSS <- gsub("M","000", h_300$RSS)
@@ -121,7 +121,7 @@ h_300$cores <-40
 NewWave <- rbind(h_10,h_100,h_200,h_300) %>% group_by(cores,model) %>% summarise(x = max(x))
 
 
-mem_h_10<- read.table("/path/to/file/zinbwave_mem_10.txt", header=TRUE, quote="\"")
+mem_h_10<- read.table("zinbwave_mem_10.txt", header=TRUE, quote="\"")
 h_10 <- mem_h_10[,c(1,9)]
 h_10$RSS <- gsub("G", "000000", h_10$RSS)
 h_10$RSS <- gsub("M","000", h_10$RSS)
@@ -132,7 +132,7 @@ h_10 = h_10 %>% group_by(index) %>% summarise(x = sum(RSS))
 h_10$model <-"ZinbWave"
 h_10$cores <-10
 
-mem_h_100<- read.table("/path/to/file/zinbwave_mem_20.txt", header=TRUE, quote="\"")
+mem_h_100<- read.table("zinbwave_mem_20.txt", header=TRUE, quote="\"")
 h_100 <- mem_h_100[,c(1,9)]
 h_100$RSS <- gsub("G", "000000", h_100$RSS)
 h_100$RSS <- gsub("M","000", h_100$RSS)
@@ -143,7 +143,7 @@ h_100 = h_100 %>% group_by(index) %>% summarise(x = sum(RSS))
 h_100$model <-"ZinbWave"
 h_100$cores <-20
 
-mem_h_200<- read.table("/path/to/file/zinbwave_mem_30.txt", header=TRUE, quote="\"")
+mem_h_200<- read.table("zinbwave_mem_30.txt", header=TRUE, quote="\"")
 h_200 <- mem_h_200[,c(1,9)]
 h_200$RSS <- gsub("G", "000000", h_200$RSS)
 h_200$RSS <- gsub("M","000", h_200$RSS)
@@ -154,7 +154,7 @@ h_200 = h_200 %>% group_by(index) %>% summarise(x = sum(RSS))
 h_200$model <-"ZinbWave"
 h_200$cores <-30
 
-mem_h_300<- read.table("/path/to/file/zinbwave_mem_10.txt", header=TRUE, quote="\"")
+mem_h_300<- read.table("zinbwave_mem_10.txt", header=TRUE, quote="\"")
 h_300 <- mem_h_300[,c(1,9)]
 h_300$RSS <- gsub("G", "000000", h_300$RSS)
 h_300$RSS <- gsub("M","000", h_300$RSS)

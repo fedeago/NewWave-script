@@ -1,10 +1,11 @@
 library(NewWave)
 library(SingleCellExperiment)
 library(TENxBrainData)
+library(here)
 
 tenx <- TENxBrainData()
 n_cell <- 10000
-load("/path/to/file/10x_hvg.Rdata")
+load(here("10x_hvg.Rdata"))
 
 set.seed(1234)
 dati <- tenx[hvg,sample(ncol(counts(tenx)),n_cell)]
