@@ -4,8 +4,9 @@ library(mclust)
 library(BiocParallel)
 library(microbenchmark)
 library(zinbwave)
+library(here)
 
-load("/path/to/file/BICCN_hvg.Rdata")
+load(here("BICCN_hvg.Rdata"))
 
 
 # 10000 cell

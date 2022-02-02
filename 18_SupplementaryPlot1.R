@@ -9,8 +9,9 @@ library(umap)
 library(ggplot2)
 library(RColorBrewer)
 library(wesanderson)
+library(here)
 
-load("/path/to/file/BICCN_hvg.Rdata")
+load(here("BICCN_hvg.Rdata"))
 dati = all_data
 etichette<-as.factor(dati$label)
 

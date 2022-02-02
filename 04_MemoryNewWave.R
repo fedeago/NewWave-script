@@ -1,8 +1,9 @@
 library(NewWave)
 library(SingleCellExperiment)
+library(here)
 
 #310515
-load("/path/to/file/BICCN_hvg.Rdata")
+load(here("BICCN_hvg.Rdata"))
 
 n_cell <- 100000
 set.seed(1234)

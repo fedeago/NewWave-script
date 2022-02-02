@@ -14,12 +14,13 @@ library(BiocSingular)
 library(Seurat)
 library(R.utils)
 library(dplyr)
+library(here)
 
 getPalette = colorRampPalette(brewer.pal(8, "Set2"))
 # If it doesen't work you can download using URL
-download.file("https://github.com/LuyiTian/sc_mixology/blob/master/data/mRNAmix_qc.RData", destfile = "/path/to/file/mRNAmix_qc.RData")
+download.file("https://github.com/LuyiTian/sc_mixology/blob/master/data/mRNAmix_qc.RData", destfile = here("mRNAmix_qc.RData"))
 
-load("/path/to/file/mRNAmix_qc.RData")
+load(here("mRNAmix_qc.RData"))
 sce2_qc$batch = "CEL-seq2"
 sce8_qc$batch = "Sort-seq"
 

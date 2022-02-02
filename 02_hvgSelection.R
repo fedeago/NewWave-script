@@ -2,8 +2,10 @@ library(scran)
 library(scater)
 library(batchelor)
 library(scran)
+library(here)
+
 num_cell <- 100000
-load("/path/to/file/BICCN_data.Rdata")
+load(here("BICCN_data.Rdata"))
 
 set.seed(1234)
 cell <- sample(1:ncol(all_data), num_cell)
@@ -24,4 +26,4 @@ save(hvg, file = name)
 
 all_data = all_data[hvg,]
 
-save(all_data,file="/path/to/file/BICCN_hvg.Rdata")
+save(all_data,file=here("BICCN_hvg.Rdata"))
